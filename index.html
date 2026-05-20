@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#1f1235" />
+<title>Pin the Wig on Hexy</title>
+<link rel="stylesheet" href="src/css/styles.css" />
+</head>
+<body>
+<div id="app">
+  <canvas id="stage" aria-label="Pin the Wig on Hexy game stage" role="img"></canvas>
+
+  <header id="hud" class="hud hidden" aria-hidden="true">
+    <div class="hud-cell">
+      <span class="hud-label">Round</span>
+      <span id="hud-round" class="hud-value">1</span>
+    </div>
+    <div class="hud-cell hud-score">
+      <span class="hud-label">Score</span>
+      <span id="hud-score" class="hud-value">0</span>
+    </div>
+    <div class="hud-cell">
+      <span class="hud-label">Best</span>
+      <span id="hud-best" class="hud-value">0</span>
+    </div>
+    <div class="hud-timer">
+      <div id="hud-timer-fill" class="hud-timer-fill"></div>
+    </div>
+    <button id="btn-mute" class="icon-btn" type="button" title="Toggle sound" aria-label="Toggle sound">
+      <span id="mute-glyph">&#128266;</span>
+    </button>
+  </header>
+
+  <section id="screen-start" class="overlay">
+    <div class="panel">
+      <h1 class="title">Pin the Wig<span class="title-sub">on&nbsp;Hexy</span></h1>
+      <p class="tagline">He's bald and he won't hold still. Slap that wig on his head.</p>
+      <ol class="how">
+        <li><b>Press &amp; hold</b> anywhere to grab the wig.</li>
+        <li><b>Drag</b> it over Hexy's bouncing head.</li>
+        <li><b>Release</b> on the glowing target to pin it.</li>
+        <li>He gets <b>faster every round</b>. Six rounds. Best accuracy wins.</li>
+      </ol>
+      <button id="btn-start" class="btn-primary" type="button">Start</button>
+      <p class="assets-tip">
+        Drop your own <code>assets/bald.png</code> and <code>assets/wig.png</code>
+        to play with the real Hexy. Built-in cartoon art is used until then.
+      </p>
+    </div>
+  </section>
+
+  <section id="screen-round" class="overlay hidden">
+    <div class="panel panel-flash">
+      <h2 id="round-headline" class="round-headline">Nice!</h2>
+      <p id="round-detail" class="round-detail"></p>
+      <div class="round-points" id="round-points">+0</div>
+    </div>
+  </section>
+
+  <section id="screen-over" class="overlay hidden">
+    <div class="panel">
+      <h2 class="title small">Game Over</h2>
+      <div class="final-grid">
+        <div><span class="final-num" id="final-score">0</span><span class="final-cap">Score</span></div>
+        <div><span class="final-num" id="final-acc">0%</span><span class="final-cap">Accuracy</span></div>
+        <div><span class="final-num" id="final-best-round">0</span><span class="final-cap">Best Round</span></div>
+      </div>
+      <p id="final-verdict" class="final-verdict"></p>
+      <p id="final-record" class="final-record hidden">&#11088; New personal best!</p>
+      <button id="btn-again" class="btn-primary" type="button">Play Again</button>
+    </div>
+  </section>
+</div>
+
+<script src="src/js/game.js" defer></script>
+</body>
+</html>

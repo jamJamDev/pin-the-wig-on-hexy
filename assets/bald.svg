@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 360" width="300" height="360">
+  <defs>
+    <radialGradient id="skin" cx="42%" cy="34%" r="72%">
+      <stop offset="0%" stop-color="#ffdfc4"/>
+      <stop offset="62%" stop-color="#f3bd97"/>
+      <stop offset="100%" stop-color="#d99a72"/>
+    </radialGradient>
+    <radialGradient id="shine" cx="40%" cy="20%" r="40%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- neck & shoulders -->
+  <path d="M110 300 q40 26 80 0 l24 60 H86 Z" fill="#3a2c63"/>
+  <rect x="120" y="280" width="60" height="46" rx="22" fill="#e9b287"/>
+
+  <!-- ears -->
+  <ellipse cx="58" cy="178" rx="22" ry="32" fill="url(#skin)"/>
+  <ellipse cx="242" cy="178" rx="22" ry="32" fill="url(#skin)"/>
+  <ellipse cx="60" cy="178" rx="9" ry="16" fill="#cf9067"/>
+  <ellipse cx="240" cy="178" rx="9" ry="16" fill="#cf9067"/>
+
+  <!-- bald head -->
+  <path d="M150 30
+           C 96 30 64 78 64 150
+           C 64 232 100 296 150 296
+           C 200 296 236 232 236 150
+           C 236 78 204 30 150 30 Z"
+        fill="url(#skin)"/>
+  <ellipse cx="124" cy="92" rx="62" ry="44" fill="url(#shine)"/>
+
+  <!-- brows -->
+  <path d="M96 168 q22 -16 46 -2" stroke="#7a4a2b" stroke-width="7" fill="none" stroke-linecap="round"/>
+  <path d="M204 168 q-22 -16 -46 -2" stroke="#7a4a2b" stroke-width="7" fill="none" stroke-linecap="round"/>
+
+  <!-- eyes -->
+  <ellipse cx="116" cy="190" rx="15" ry="17" fill="#fff"/>
+  <ellipse cx="184" cy="190" rx="15" ry="17" fill="#fff"/>
+  <circle cx="120" cy="193" r="7.5" fill="#3b2a1c"/>
+  <circle cx="188" cy="193" r="7.5" fill="#3b2a1c"/>
+  <circle cx="123" cy="190" r="2.4" fill="#fff"/>
+  <circle cx="191" cy="190" r="2.4" fill="#fff"/>
+
+  <!-- nose -->
+  <path d="M150 198 q-12 30 -2 42 q10 6 22 -2" stroke="#cf9067" stroke-width="6" fill="none" stroke-linecap="round"/>
+
+  <!-- grin -->
+  <path d="M118 250 q32 30 64 0 q-32 12 -64 0 Z" fill="#7a3b3b"/>
+  <path d="M118 250 q32 30 64 0" stroke="#5a2a2a" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <path d="M122 252 q28 6 56 0" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round"/>
+
+  <!-- cheek blush -->
+  <ellipse cx="98" cy="226" rx="16" ry="9" fill="#f59c7d" opacity="0.45"/>
+  <ellipse cx="202" cy="226" rx="16" ry="9" fill="#f59c7d" opacity="0.45"/>
+</svg>

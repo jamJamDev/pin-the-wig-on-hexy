@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x /Users/jc/Documents/dev/pin-the-wig-on-hexy/run_pin_the_wig_on_hexy.sh)",
+      "Bash(node -c src/js/game.js)",
+      "Bash(pkill -f \"http.server 8123\")",
+      "Bash(pkill -f \"http.server 8080\")",
+      "Bash(./run_pin_the_wig_on_hexy.sh *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8080/)",
+      "Bash(pkill -f \"run_pin_the_wig_on_hexy.sh\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 2 http://localhost:8080/)"
+    ]
+  }
+}

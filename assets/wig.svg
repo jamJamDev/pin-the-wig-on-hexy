@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" width="320" height="240">
+  <defs>
+    <linearGradient id="hair" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff8ad4"/>
+      <stop offset="45%" stop-color="#b06bff"/>
+      <stop offset="100%" stop-color="#6f3bd6"/>
+    </linearGradient>
+    <linearGradient id="hairHi" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- side & back volume -->
+  <g fill="url(#hair)">
+    <path d="M40 150 Q4 120 30 70 Q44 150 70 168 Q44 184 40 150 Z"/>
+    <path d="M280 150 Q316 120 290 70 Q276 150 250 168 Q276 184 280 150 Z"/>
+    <path d="M60 96 Q20 150 56 196 Q40 120 92 78 Z"/>
+    <path d="M260 96 Q300 150 264 196 Q280 120 228 78 Z"/>
+  </g>
+
+  <!-- main bouffant dome -->
+  <path d="M160 14
+           C 92 14 52 60 50 122
+           C 78 104 96 112 110 128
+           C 116 96 138 80 160 80
+           C 182 80 204 96 210 128
+           C 224 112 242 104 270 122
+           C 268 60 228 14 160 14 Z"
+        fill="url(#hair)"/>
+
+  <!-- curl lumps along the brow line -->
+  <g fill="url(#hair)">
+    <circle cx="74" cy="138" r="22"/>
+    <circle cx="110" cy="150" r="24"/>
+    <circle cx="160" cy="150" r="26"/>
+    <circle cx="210" cy="150" r="24"/>
+    <circle cx="246" cy="138" r="22"/>
+  </g>
+
+  <!-- highlights -->
+  <path d="M120 40 Q150 22 196 38 Q170 44 150 60 Q132 48 120 40 Z" fill="url(#hairHi)"/>
+  <path d="M84 88 Q96 64 120 56 Q104 84 100 116 Q88 104 84 88 Z" fill="url(#hairHi)"/>
+  <g stroke="#ffffff" stroke-opacity="0.28" stroke-width="4" fill="none" stroke-linecap="round">
+    <path d="M150 36 Q132 78 138 132"/>
+    <path d="M178 38 Q198 78 196 134"/>
+    <path d="M108 60 Q92 100 100 138"/>
+    <path d="M214 64 Q230 100 222 140"/>
+  </g>
+
+  <!-- inner cap (sits on the scalp) -->
+  <path d="M104 150 Q160 132 216 150 Q160 196 104 150 Z" fill="#3a2357" opacity="0.55"/>
+  <path d="M104 150 Q160 134 216 150" stroke="#2a1840" stroke-width="3" fill="none" opacity="0.5"/>
+</svg>
