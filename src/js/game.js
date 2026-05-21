@@ -1,9 +1,14 @@
 "use strict";
 
 (() => {
-  const TOTAL_ROUNDS = 6;
+  const TOTAL_ROUNDS = 10;
   const BEST_KEY = "ptwoh.best";
   const MUTE_KEY = "ptwoh.muted";
+
+  const MOD = window.PTWOHModifiers;
+  if (!MOD || typeof MOD.buildPlan !== "function" || typeof MOD.stepHexy !== "function") {
+    throw new Error("Pin the Wig on Hexy: src/js/modifiers.js failed to load");
+  }
 
   // Anchor geometry, expressed as fractions of each sprite's own box.
   // Tuned for assets/bald.webp (448x544) + assets/wig.png (497x450).
@@ -64,10 +69,17 @@
     view.h = h;
 
     sizeSprites();
-    if (game.state === "playing" && prevW > 0) {
+    if (game.state === "playing" && prevW > 0 && prevH > 0) {
       hexy.x *= w / prevW;
       hexy.y *= h / prevH;
       clampHexy();
+    }
+    // Hexy moved in the rescale -- re-sync the smoothed reticle so it does not
+    // glide across the canvas. Offset variations self-absorb the resize.
+    if (hexy.w > 0) {
+      const ht = headTarget();
+      game.aimX = ht.x;
+      game.aimY = ht.y;
     }
     parkWig();
   }
@@ -182,9 +194,21 @@
     advancing: false,
     shake: 0,
     lastTick: 0,
+    seed: 0,         // per-playthrough seed driving the variation plan
+    baseSpeed: 1,    // current round's nominal speed
+    modifierPlan: null,    // full 10-round movement-variation plan
+    activeModifiers: null, // cumulative variations active this round
+    aimX: 0,         // smoothed reticle target (what the player aims at)
+    aimY: 0,
   };
 
   const confetti = [];
+
+  // Reused per-frame movement state handed to the modifier subsystem.
+  const moveSim = {
+    hexy: null, view: null, baseSpeed: 1, round: 0,
+    activeModifiers: null, state: "", bounceX: 0, bounceY: 0,
+  };
 
   function headTarget() {
     return {
@@ -240,9 +264,15 @@
 
   // ---------- Game flow ----------
   function startGame() {
+    if (game.state !== "start" && game.state !== "gameOver") return;
     game.round = 0;
     game.score = 0;
     game.bestRound = 0;
+    game.seed = (((Date.now() & 0xffffffff) ^ ((Math.random() * 0xffffffff) | 0)) >>> 0) || 1;
+    game.modifierPlan = MOD.buildPlan(game.seed);
+    game.activeModifiers = [];
+    moveSim.bounceX = 0;
+    moveSim.bounceY = 0;
     confetti.length = 0;
     show(el.screenStart, false);
     show(el.screenOver, false);
@@ -261,8 +291,12 @@
     game.cardT = 0;
 
     const base = Math.min(view.w, view.h);
-    const speed = base * (0.42 + game.round * 0.17);
-    const ang = Math.random() * Math.PI * 2;
+    // Speed ramps with the round; the stacking variations carry the rest of
+    // the difficulty. Round 1 is slow and calm, round 10 is fast.
+    const speed = base * (0.30 + game.round * 0.105);
+    game.baseSpeed = speed;
+    const roundRng = MOD.makeRng((((game.seed ^ 0x9e3779b9) + game.round * 0x85ebca6b) >>> 0) || 1);
+    const ang = roundRng() * Math.PI * 2;
     hexy.x = view.w / 2 - hexy.w / 2;
     hexy.y = view.h * 0.34 - hexy.h / 2;
     hexy.vx = Math.cos(ang) * speed;
@@ -270,10 +304,19 @@
     hexy.wobble = 0;
     hexy.squash = 1;
     hexy.pop = 0;
+    moveSim.bounceX = 0;
+    moveSim.bounceY = 0;
     clampHexy();
 
-    game.roundTime = Math.max(5, 9 - (game.round - 1) * 0.65);
+    game.roundTime = Math.max(4.5, 9 - (game.round - 1) * 0.4);
     game.roundClock = game.roundTime;
+
+    // Cumulative variation stack: round N runs the first N plan entries.
+    game.activeModifiers = MOD.resetPlanForRound(game.modifierPlan, game.round, game.seed);
+
+    const ht = headTarget();
+    game.aimX = ht.x;
+    game.aimY = ht.y;
 
     parkWig();
     updateHud();
@@ -281,7 +324,7 @@
   }
 
   function evaluatePin() {
-    const ht = headTarget();
+    const ht = { x: game.aimX, y: game.aimY };
     const wax = wig.x + wig.w * WIG_ANCHOR.x;
     const way = wig.y + wig.h * WIG_ANCHOR.y;
     const dist = Math.hypot(wax - ht.x, way - ht.y);
@@ -418,6 +461,14 @@
       if (game.cardT <= 0) proceed();
     }
 
+    if (hexy.w > 0 &&
+        (game.state === "playing" || game.state === "roundEnd" || game.state === "roundCard")) {
+      const ht = headTarget();
+      const s = Math.min(1, dt * 14);
+      game.aimX += (ht.x - game.aimX) * s;
+      game.aimY += (ht.y - game.aimY) * s;
+    }
+
     if (hexy.pop > 0) hexy.pop = Math.max(0, hexy.pop - dt * 3.2);
     hexy.squash += (1 - hexy.squash) * Math.min(1, dt * 12);
     if (game.shake > 0) game.shake = Math.max(0, game.shake - dt * 60);
@@ -439,15 +490,14 @@
   }
 
   function moveHexy(dt, speedScale) {
-    const wobAmp = Math.min(0.5, 0.08 + game.round * 0.06);
-    hexy.wobble += dt * (2 + game.round * 0.4);
-    hexy.x += hexy.vx * dt * speedScale;
-    hexy.y += (hexy.vy + Math.sin(hexy.wobble) * hexy.h * wobAmp) * dt * speedScale;
-
-    if (hexy.x <= 0) { hexy.x = 0; hexy.vx = Math.abs(hexy.vx); bounceSquash(); }
-    else if (hexy.x + hexy.w >= view.w) { hexy.x = view.w - hexy.w; hexy.vx = -Math.abs(hexy.vx); bounceSquash(); }
-    if (hexy.y <= 0) { hexy.y = 0; hexy.vy = Math.abs(hexy.vy); bounceSquash(); }
-    else if (hexy.y + hexy.h >= view.h) { hexy.y = view.h - hexy.h; hexy.vy = -Math.abs(hexy.vy); bounceSquash(); }
+    moveSim.hexy = hexy;
+    moveSim.view = view;
+    moveSim.baseSpeed = game.baseSpeed;
+    moveSim.round = game.round;
+    moveSim.activeModifiers = game.activeModifiers;
+    moveSim.state = game.state;
+    const r = MOD.stepHexy(moveSim, dt, speedScale, reduceMotion);
+    if (r.bounced) bounceSquash();
   }
 
   function bounceSquash() {
@@ -466,6 +516,7 @@
 
     if (game.state === "playing" || game.state === "roundEnd" || game.state === "roundCard") {
       drawReticle();
+      drawWarpTelegraph();
       drawHexy();
       drawWig();
     }
@@ -488,7 +539,7 @@
 
   function drawReticle() {
     if (game.state !== "playing" && wig.stuck) return;
-    const ht = headTarget();
+    const ht = { x: game.aimX, y: game.aimY };
     const pulse = 1 + Math.sin(performance.now() / 240) * 0.12;
     const r = game.targetRadius * pulse;
     ctx.save();
@@ -547,6 +598,20 @@
       ctx.rotate(p.rot);
       ctx.fillStyle = p.color;
       ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+      ctx.restore();
+    }
+  }
+
+  // A faint ghost of Hexy at the spot the warp variation is about to blink to
+  // -- a fairness tell so a teleport never feels cheap.
+  function drawWarpTelegraph() {
+    if (game.state !== "playing" || !game.activeModifiers || !sprites.bald) return;
+    for (const e of game.activeModifiers) {
+      if (e.key !== "warp" || e.runtime.telegraph <= 0) continue;
+      const prog = 1 - e.runtime.telegraph / e.params.telegraphTime;
+      ctx.save();
+      ctx.globalAlpha = 0.12 + 0.3 * prog;
+      ctx.drawImage(sprites.bald, e.runtime.pendingX, e.runtime.pendingY, hexy.w, hexy.h);
       ctx.restore();
     }
   }

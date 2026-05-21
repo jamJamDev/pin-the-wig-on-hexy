@@ -1,0 +1,12 @@
+{
+  "name": "pin-the-wig-on-hexy",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Pin the Wig on Hexy -- a browser canvas mini-game with a stacking movement-variation system.",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
