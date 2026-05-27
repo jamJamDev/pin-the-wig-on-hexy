@@ -436,7 +436,7 @@
     if (reduceMotion) return;
     const ht = headTarget();
     const n = Math.round(70 * intensity);
-    const palette = ["#b06bff", "#ff5fa2", "#41e0a3", "#ffc24b", "#ffffff"];
+    const palette = ["#FE0000", "#ffffff", "#FE0000", "#fc7878", "#ffffff"];
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 120 + Math.random() * 320;
@@ -460,8 +460,8 @@
       const frac = Math.max(0, game.roundClock / game.roundTime);
       el.timerFill.style.transform = "scaleX(" + frac + ")";
       el.timerFill.style.background = frac < 0.3
-        ? "linear-gradient(90deg,#ff5fa2,#ffc24b)"
-        : "linear-gradient(90deg,#41e0a3,#ffc24b)";
+        ? "linear-gradient(90deg, var(--accent), var(--warn))"
+        : "linear-gradient(90deg, var(--good), var(--warn))";
       if (game.roundClock <= 0) { evaluatePinTimeout(); return; }
 
       moveHexy(dt, 1);
@@ -553,10 +553,10 @@
     if (!hexy.w) return;
     const cx = hexy.x + hexy.w / 2;
     const cy = hexy.y + hexy.h / 2;
-    const r = hexy.w * 1.5;
+    const r = hexy.w * 2.2;
     const grd = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r);
-    grd.addColorStop(0, "rgba(176,107,255,0.22)");
-    grd.addColorStop(1, "rgba(176,107,255,0)");
+    grd.addColorStop(0, "rgba(254, 0, 0, 0.22)");
+    grd.addColorStop(1, "rgba(254, 0, 0, 0)");
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, view.w, view.h);
   }
