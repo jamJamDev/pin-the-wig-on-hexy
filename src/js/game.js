@@ -11,7 +11,7 @@
   }
 
   // Anchor geometry, expressed as fractions of each sprite's own box.
-  // Tuned for assets/bald.webp (448x544) + assets/wig.png (497x450).
+  // Tuned for assets/bald_no_bg.png (448x544) + assets/wig.png (497x450).
   // The seat point is deliberately HIGH on his crown -- a perfect pin leaves
   // Hexy's forehead visible (it's a chat in-joke). WIG_ANCHOR.x matches the
   // wig's parting line so a bullseye centers the part on the head.
@@ -135,7 +135,7 @@
   function loadAssets() {
     return Promise.all([
       loadFirst(
-        ["assets/bald.png", "assets/bald.webp", "assets/bald.jpg", "assets/bald.svg"],
+        ["assets/bald_no_bg.png", "assets/bald.png", "assets/bald.webp", "assets/bald.jpg", "assets/bald.svg"],
         () => fallbackImage(300, 360, (g) => {
           g.fillStyle = "#f3bd97";
           g.beginPath();
@@ -236,6 +236,11 @@
   let audioCtx = null;
   let muted = localStorage.getItem(MUTE_KEY) === "1";
 
+  // Eager-loaded fart sample. Cloned per play so rapid pins overlap cleanly
+  // (an HTMLAudioElement can't replay while it's already playing).
+  const fartSample = new Audio("assets/fart.mp3");
+  fartSample.preload = "auto";
+
   function refreshMuteUI() {
     el.muteGlyph.innerHTML = muted ? "&#128263;" : "&#128266;";
     el.mute.classList.toggle("muted", muted);
@@ -264,6 +269,13 @@
 
   function chord(freqs, dur, type = "triangle") {
     freqs.forEach((f, i) => setTimeout(() => beep(f, dur, type, 0.14), i * 70));
+  }
+
+  function fart(volume = 0.7) {
+    if (muted) return;
+    const a = fartSample.cloneNode();
+    a.volume = volume;
+    a.play().catch(() => {});
   }
 
   // ---------- Game flow ----------
@@ -376,6 +388,9 @@
       spawnConfetti(tier.points >= 1000 ? 1 : 0.6);
       if (tier.points >= 1000) chord([523, 659, 784, 1046], 0.22);
       else beep(tier.points >= 650 ? 660 : 520, 0.16, "triangle", 0.2);
+      fart();
+      // Aftershock puff to land on the small second fart in the sample.
+      setTimeout(() => spawnConfetti(0.2), 1600);
     } else {
       wig.held = false;
       game.shake = reduceMotion ? 0 : 14;
