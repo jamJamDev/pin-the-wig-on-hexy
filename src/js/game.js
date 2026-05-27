@@ -12,9 +12,12 @@
 
   // Anchor geometry, expressed as fractions of each sprite's own box.
   // Tuned for assets/bald.webp (448x544) + assets/wig.png (497x450).
+  // The seat point is deliberately HIGH on his crown -- a perfect pin leaves
+  // Hexy's forehead visible (it's a chat in-joke). WIG_ANCHOR.x matches the
+  // wig's parting line so a bullseye centers the part on the head.
   // If you swap the art and the wig sits off, nudge these two.
-  const HEAD_ANCHOR = { x: 0.46, y: 0.2 };  // bald crown the wig should cover
-  const WIG_ANCHOR  = { x: 0.49, y: 0.46 }; // cap seat that meets the scalp
+  const HEAD_ANCHOR = { x: 0.48, y: 0.11 }; // crown perch -- high, so the forehead joke stays visible
+  const WIG_ANCHOR  = { x: 0.48, y: 0.46 }; // wig's parting line, so a bullseye centers the part on his head
 
   const SCORE_TIERS = [
     { maxR: 0.5, points: 1000, headline: "BULLSEYE!",  detail: "Pinned it dead center." },
@@ -41,6 +44,7 @@
     screenOver: document.getElementById("screen-over"),
     btnStart: document.getElementById("btn-start"),
     btnAgain: document.getElementById("btn-again"),
+    btnRoundNext: document.getElementById("btn-round-next"),
     roundHeadline: document.getElementById("round-headline"),
     roundDetail: document.getElementById("round-detail"),
     roundPoints: document.getElementById("round-points"),
@@ -323,17 +327,37 @@
     show(el.screenRound, false);
   }
 
+  // Direction-specific roast for non-bullseye, non-whiff hits, so the player
+  // knows which way to correct on the next round. Bullseye keeps its
+  // celebratory detail; a whiff keeps its "hit air" line.
+  function directionalRoast(dx, dy) {
+    if (Math.abs(dy) >= Math.abs(dx)) {
+      return dy > 0
+        ? "Too low -- Hexy's forehead is bigger than that."
+        : "Too high -- that wig's floating.";
+    }
+    return dx > 0 ? "Off to the right." : "Off to the left.";
+  }
+
   function evaluatePin() {
     const ht = { x: game.aimX, y: game.aimY };
     const wax = wig.x + wig.w * WIG_ANCHOR.x;
     const way = wig.y + wig.h * WIG_ANCHOR.y;
-    const dist = Math.hypot(wax - ht.x, way - ht.y);
+    const dx = wax - ht.x;
+    const dy = way - ht.y;
+    const dist = Math.hypot(dx, dy);
     const ratio = dist / game.targetRadius;
 
     let tier = MISS;
     for (const t of SCORE_TIERS) {
       if (ratio <= t.maxR) { tier = t; break; }
     }
+
+    const bullseye = tier === SCORE_TIERS[0];
+    if (tier !== MISS && !bullseye) {
+      tier = Object.assign({}, tier, { detail: directionalRoast(dx, dy) });
+    }
+
     finishRound(tier, tier !== MISS);
   }
 
@@ -368,7 +392,7 @@
 
   function showRoundCard() {
     game.state = "roundCard";
-    game.cardT = 1.3;
+    game.cardT = 4;  // long enough to read the directional roast; Next button or any tap exits early
     show(el.screenRound, true);
   }
 
@@ -515,9 +539,9 @@
     drawSpotlight();
 
     if (game.state === "playing" || game.state === "roundEnd" || game.state === "roundCard") {
-      drawReticle();
       drawWarpTelegraph();
       drawHexy();
+      drawReticle();  // on top of Hexy so it stays visible when he bounces over it
       drawWig();
     }
 
@@ -670,6 +694,7 @@
 
   el.btnStart.addEventListener("click", startGame);
   el.btnAgain.addEventListener("click", startGame);
+  el.btnRoundNext.addEventListener("click", proceed);
   el.mute.addEventListener("click", () => {
     muted = !muted;
     try { localStorage.setItem(MUTE_KEY, muted ? "1" : "0"); } catch (_) {}
