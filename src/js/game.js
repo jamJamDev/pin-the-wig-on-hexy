@@ -20,7 +20,7 @@
   const WIG_ANCHOR  = { x: 0.48, y: 0.46 }; // wig's parting line, so a bullseye centers the part on his head
 
   const SCORE_TIERS = [
-    { maxR: 0.5, points: 1000, headline: "BULLSEYE!",  detail: "Pinned it dead center." },
+    { maxR: 0.5, points: 1000, headline: "BULLSEYE!",  detail: "Pinned it dead center on that big ass forehead." },
     { maxR: 1.0, points: 650,  headline: "Snug fit!",  detail: "Hexy barely felt a thing." },
     { maxR: 1.7, points: 350,  headline: "It'll do.",  detail: "A little crooked, but on." },
   ];
@@ -348,7 +348,7 @@
         ? "Too low -- Hexy's forehead is bigger than that."
         : "Too high -- that wig's floating.";
     }
-    return dx > 0 ? "Off to the right." : "Off to the left.";
+    return dx > 0 ? "More to the left." : "More to the right.";
   }
 
   function evaluatePin() {
