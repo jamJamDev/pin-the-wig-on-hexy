@@ -1,7 +1,9 @@
 {
   "clips": [
     { "file": "alright--time-for-another-shot.wav", "title": "alright time for another shot" },
+    { "file": "at-the-last-twitchcon-orgy-i-b.wav", "title": "at the last twitchcon orgy i b" },
     { "file": "brb.wav", "title": "brb" },
+    { "file": "by-the-time-i-use-my-irl-backp.wav", "title": "by the time i use my irl backp" },
     { "file": "chat_messages.wav", "title": "chat messages" },
     { "file": "chuxie-2-was-way-better-than-t.wav", "title": "chuxie 2 was way better than t" },
     { "file": "dbg.wav", "title": "dbg" },
@@ -15,7 +17,9 @@
     { "file": "Hexy-seattle-vampires.mp3", "title": "Hexy seattle vampires" },
     { "file": "Hexy-sexadvice.mp3", "title": "Hexy sexadvice" },
     { "file": "Hexy-thorn-crown-tattoo.mp3", "title": "Hexy thorn crown tattoo" },
+    { "file": "i-admit--i-would-never-be-even.wav", "title": "i admit i would never be even" },
     { "file": "i-am-pissed-off-at-my-chat-bec.wav", "title": "i am pissed off at my chat bec" },
+    { "file": "i-decided-to-bait-and-switchin.wav", "title": "i decided to bait and switchin" },
     { "file": "i-don-t-know-if-i-should-be-te.wav", "title": "i don t know if i should be te" },
     { "file": "i-gave-up-smoking-for-drinking.wav", "title": "i gave up smoking for drinking" },
     { "file": "i-just-bought-a-sex-toy-that-p.wav", "title": "i just bought a sex toy that p" },
@@ -33,9 +37,11 @@
     { "file": "i-think-i-m-an-empath-who-is-j.wav", "title": "i think i m an empath who is j" },
     { "file": "i-want-to-do-some-irl-streamin.wav", "title": "i want to do some irl streamin" },
     { "file": "i-wasn-t-a-drunk-alcoholic-bef.wav", "title": "i wasn t a drunk alcoholic bef" },
+    { "file": "i-wonder-how-many-idiots-belie.wav", "title": "i wonder how many idiots belie" },
     { "file": "i-would-love-to-slap-fight-cas.wav", "title": "i would love to slap fight cas" },
     { "file": "idiot_rambling.wav", "title": "idiot rambling" },
     { "file": "if-you-can-t-look-at-me-and-ta.wav", "title": "if you can t look at me and ta" },
+    { "file": "if-you-donate-5-gifted-i-ll-bo.wav", "title": "if you donate 5 gifted i ll bo" },
     { "file": "in-seattle-i-m-going-to-have-t.wav", "title": "in seattle i m going to have t" },
     { "file": "look--i-am-such-a-bitch-you-ha.wav", "title": "look i am such a bitch you ha" },
     { "file": "moving_lol.wav", "title": "moving lol" },
@@ -44,9 +50,13 @@
     { "file": "solve_problems.wav", "title": "solve problems" },
     { "file": "sometimes-i-jork-it-so-much-wh.wav", "title": "sometimes i jork it so much wh" },
     { "file": "sometimes-i-think-i-should-mov.wav", "title": "sometimes i think i should mov" },
+    { "file": "stop-riding-me--i-m-already-a-.wav", "title": "stop riding me i m already a" },
     { "file": "the-sex-toys-make-up-for-the-m.wav", "title": "the sex toys make up for the m" },
     { "file": "torpedo.wav", "title": "torpedo" },
+    { "file": "trust-me-i-don-t-need-your-mon.wav", "title": "trust me i don t need your mon" },
+    { "file": "whatever-happened-to-that-one-.wav", "title": "whatever happened to that one" },
     { "file": "when-i-go-ghost-hunting-everyo.wav", "title": "when i go ghost hunting everyo" },
-    { "file": "whenever-i-grew-up-i-remember-.wav", "title": "whenever i grew up i remember" }
+    { "file": "whenever-i-grew-up-i-remember-.wav", "title": "whenever i grew up i remember" },
+    { "file": "you-guys-know-i-m-kind-of-in-t.wav", "title": "you guys know i m kind of in t" }
   ]
 }

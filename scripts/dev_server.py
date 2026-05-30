@@ -16,9 +16,11 @@ import errno
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
@@ -202,27 +204,92 @@ def port_holder_pids(port):
         ).stdout
     except (OSError, subprocess.SubprocessError):
         return []
-    return [p for p in out.split() if p.strip()]
+    pids = []
+    for tok in out.split():
+        try:
+            pids.append(int(tok))
+        except ValueError:
+            pass
+    return pids
+
+
+def is_our_dev_server(pid):
+    """True only when ``pid`` is another run of THIS server.
+
+    We reclaim our own orphaned instance but never kill an unrelated process
+    that merely happens to sit on the port -- so the auto-kill is verified by
+    command line, not assumed from the port alone.
+    """
+    if pid == os.getpid():
+        return False
+    try:
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True, text=True, timeout=3,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "dev_server.py" in out
+
+
+def try_bind(port):
+    """Bind the server, or return None if the port is already in use."""
+    try:
+        return ThreadingHTTPServer(("", port), RangeHandler)
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise  # an unexpected bind failure -- surface it loudly, don't mask
+        return None
+
+
+def reclaim_port(port, pids):
+    """Stop previous instances of this server and wait for the port to free.
+
+    Escalates SIGTERM -> SIGKILL, retrying the bind between signals. Returns a
+    bound server on success, or None if the port could not be reclaimed.
+    """
+    print(
+        "Port %d held by a previous dev server (PID %s) -- stopping it."
+        % (port, ", ".join(str(p) for p in pids)),
+        flush=True,  # always surface the takeover, even when stdout is redirected
+    )
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass  # already gone -- the bind retry below will pick it up
+            except (PermissionError, OSError):
+                return None  # cannot signal it; fall back to the manual hint
+        for _ in range(15):  # give the OS up to ~3s to release the socket
+            time.sleep(0.2)
+            server = try_bind(port)
+            if server is not None:
+                return server
+    return None
 
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     if len(sys.argv) > 2:
         os.chdir(sys.argv[2])
-    try:
-        httpd = ThreadingHTTPServer(("", port), RangeHandler)
-    except OSError as exc:
-        if exc.errno != errno.EADDRINUSE:
-            raise  # an unexpected bind failure -- surface it loudly, don't mask
-        # A leftover server (often an orphaned background run) still holds the
-        # port. Don't crash with a traceback -- name the culprit and the fix.
-        pids = port_holder_pids(port)
+    httpd = try_bind(port)
+    if httpd is None:
+        # Port busy. Auto-reclaim it when a previous instance of THIS server is
+        # squatting (the common case: an orphaned background run). Anything else
+        # on the port is left untouched, with an actionable hint instead.
+        holders = port_holder_pids(port)
+        ours = [p for p in holders if is_our_dev_server(p)]
+        if ours:
+            httpd = reclaim_port(port, ours)
+    if httpd is None:
+        holders = port_holder_pids(port)
         sys.stderr.write(
             "error: port %d is already in use%s.\n"
-            % (port, " by PID " + ", ".join(pids) if pids else "")
+            % (port, " by PID " + ", ".join(str(p) for p in holders) if holders else "")
         )
-        if pids:
-            sys.stderr.write("  Stop it:  kill %s\n" % " ".join(pids))
+        if holders:
+            sys.stderr.write("  Stop it:  kill %s\n" % " ".join(str(p) for p in holders))
         else:
             sys.stderr.write("  Find and stop it:  lsof -ti tcp:%d | xargs kill\n" % port)
         sys.stderr.write(
