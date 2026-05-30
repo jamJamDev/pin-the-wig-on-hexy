@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# Claude Code per-machine settings (personal permission allowlist etc.).
+# Shared config belongs in .claude/settings.json instead.
+.claude/settings.local.json
+
 # Throwaway local audio used only for verification -- never committed.
 # (Real songs/voice lines you add to these folders ARE tracked normally.)
 assets/music/__test_*
