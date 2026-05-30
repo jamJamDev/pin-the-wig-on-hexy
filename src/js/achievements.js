@@ -28,7 +28,7 @@
     { id: "song-5",    track: "song",  threshold: 5,     title: "Regular Listener",  desc: "Listen to 5 different songs." },
     { id: "song-all",  track: "song",  threshold: "all", title: "Completionist",     desc: "Listen to every song in the album." },
     { id: "voice-1",   track: "voice", threshold: 1,     title: "Did You Hear That?", desc: "Hear a voice line." },
-    { id: "voice-5",   track: "voice", threshold: 5,     title: "All Ears",          desc: "Hear 5 different voice lines." },
+    { id: "voice-50",  track: "voice", threshold: 50,    title: "All Ears",          desc: "Hear 50 different voice lines." },
     { id: "voice-all", track: "voice", threshold: "all", title: "Heard It All",      desc: "Hear every voice line." },
   ];
 
@@ -80,11 +80,50 @@
     return out;
   }
 
+  // Completion ("all") badges describe a state that must stay true: every item
+  // heard. They are the only RESETTABLE tier -- when the library grows past what
+  // the player has covered, an earned "all" badge no longer reflects reality.
+  // Count milestones (1, 50) are permanent: hearing more lines later never
+  // undoes having already heard some.
+  function isResettable(id) {
+    var a = get(id);
+    return !!a && a.threshold === "all";
+  }
+
+  // Reconcile the saved earned set against what currently qualifies:
+  //   - drop ids with no definition (e.g. an achievement renamed across builds),
+  //   - revoke a resettable badge that no longer qualifies (the library grew),
+  //   - keep every other earned id (milestones stay earned),
+  //   - append any newly qualifying id.
+  // Earned order is preserved (kept first, then new), so a no-op returns an
+  // array equal to the input and the shell can skip a needless save.
+  function reconcileEarned(previousIds, currentIds) {
+    var qualifies = {};
+    var current = currentIds || [];
+    for (var i = 0; i < current.length; i++) qualifies[current[i]] = true;
+    var out = [];
+    var seen = {};
+    var prev = previousIds || [];
+    for (var j = 0; j < prev.length; j++) {
+      var id = prev[j];
+      if (seen[id] || !get(id)) continue;                // de-dupe; drop unknown
+      if (isResettable(id) && !qualifies[id]) continue;  // revoke stale completion
+      seen[id] = true;
+      out.push(id);
+    }
+    for (var k = 0; k < current.length; k++) {
+      if (!seen[current[k]]) { seen[current[k]] = true; out.push(current[k]); }
+    }
+    return out;
+  }
+
   return {
     ACHIEVEMENTS: ACHIEVEMENTS,
     get: get,
     qualifiesAsListened: qualifiesAsListened,
     evaluateUnlocks: evaluateUnlocks,
     newlyUnlocked: newlyUnlocked,
+    isResettable: isResettable,
+    reconcileEarned: reconcileEarned,
   };
 });

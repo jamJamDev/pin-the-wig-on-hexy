@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from leaderboard_store import LeaderboardStore  # noqa: E402
+from rate_limit import RateLimiter  # noqa: E402
 
 # Same-origin leaderboard API: the game and this server share a host, so no CORS.
 API_PATH = "/api/leaderboard"
@@ -34,6 +35,12 @@ _MAX_BODY = 4096  # a leaderboard submission is a few dozen bytes; cap abuse
 
 _STORE = None
 _STORE_LOCK = threading.Lock()
+
+# In-process backstop to the Cloudflare edge rate-limit rule on the only public
+# write endpoint. A burst of 10, then ~6/min sustained per client -- orders of
+# magnitude above any real player, but it throttles scripted leaderboard spam
+# even if the edge rule is misconfigured or absent.
+_POST_LIMITER = RateLimiter(capacity=10, refill_per_sec=0.1)
 
 
 def _store():
@@ -67,7 +74,28 @@ class RangeHandler(SimpleHTTPRequestHandler):
             return self._send_json(500, {"error": "leaderboard unavailable"})
         return self._send_json(200, {"entries": board, "max": _store().max_entries})
 
+    def _client_key(self):
+        """Best-effort client identity for rate limiting.
+
+        Behind the tunnel, Cloudflare sets ``CF-Connecting-IP`` and Caddy forwards
+        ``X-Forwarded-For``; these are trustworthy ONLY because the origin
+        publishes no ports and is reachable solely through the tunnel. On direct
+        local access (no proxy headers) we fall back to the peer address.
+        """
+        cf = self.headers.get("CF-Connecting-IP")
+        if cf:
+            return cf.strip()
+        xff = self.headers.get("X-Forwarded-For")
+        if xff:
+            return xff.split(",")[0].strip()
+        return self.client_address[0] if self.client_address else "unknown"
+
     def _api_post(self):
+        key = self._client_key()
+        if not _POST_LIMITER.allow(key):
+            return self._send_json(
+                429, {"error": "too many submissions; slow down"},
+                extra_headers={"Retry-After": str(_POST_LIMITER.retry_after(key))})
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
@@ -94,15 +122,28 @@ class RangeHandler(SimpleHTTPRequestHandler):
             "entries": board, "max": _store().max_entries,
         })
 
-    def _send_json(self, code, obj):
+    def _send_json(self, code, obj, extra_headers=None):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
+        self._cache_header_set = True  # don't let end_headers add a second one
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def end_headers(self):
+        # Local dev: force the browser to revalidate every response so an edited
+        # file is never served stale from cache (the stock handler sends no
+        # Cache-Control, so browsers cache JS/CSS heuristically and show old
+        # code after a save). "no-cache" still allows cheap 304s for unchanged
+        # files. API responses set their own Cache-Control above -- don't stomp.
+        if not getattr(self, "_cache_header_set", False):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
 
     # ---- Static files with Range support ----
     def send_head(self):
@@ -297,6 +338,14 @@ def main():
         )
         sys.exit(1)
     print("Serving %s on http://localhost:%d/ (Range-enabled)" % (os.getcwd(), port))
+
+    def _graceful_shutdown(_signum, _frame):
+        # `docker stop` sends SIGTERM (not SIGINT); shut down cleanly so an
+        # in-flight leaderboard write finishes instead of waiting for SIGKILL.
+        # shutdown() must run off the serving thread, so hand it to a worker.
+        threading.Thread(target=httpd.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _graceful_shutdown)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

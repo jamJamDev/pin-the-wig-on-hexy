@@ -4,9 +4,10 @@
  * The music player behaves like an always-on station: the album is one
  * continuous, endlessly looping timeline, and the play position is derived
  * from the wall clock (epoch). Every visit recomputes the live position, so
- * leaving and returning lands you where the station "would" be. The track
- * order is daily-shuffled -- a deterministic permutation seeded by the UTC day
- * index, so every visitor on the same day hears the same order.
+ * leaving and returning lands you where the station "would" be. Tracks play in
+ * album order (as numbered in the manifest). A deterministic daily shuffle
+ * (dayOrder, seeded by the UTC day index) is provided as an optional reorder,
+ * but the station plays in order by default.
  *
  * This module is pure and DOM-free: every function operates on plain values.
  * That keeps the timeline core verifiable in Node (see tests/) -- game.js is

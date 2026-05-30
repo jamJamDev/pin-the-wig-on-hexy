@@ -2,6 +2,7 @@
 # Regenerates the audio manifests by scanning the asset folders:
 #   assets/music/      -> assets/music/manifest.json      (album + tracks, with durations)
 #   assets/voicelines/ -> assets/voicelines/manifest.json (post-stage voice clips)
+#   assets/farts/      -> assets/farts/manifest.json      (random pin-fart SFX clips)
 #
 # Drop audio files into those folders, then run this with no arguments.
 # Song durations are read via ffprobe, falling back to macOS `afinfo`, and are
@@ -111,5 +112,29 @@ build_voice() {
   echo "wrote $out ($count clip(s))"
 }
 
+build_farts() {
+  local dir="assets/farts" out="assets/farts/manifest.json"
+  [ -d "$dir" ] || { echo "skip farts: $dir/ not found"; return 0; }
+  local body="" sep="" f base title entry count=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    base=$(basename "$f")
+    title=$(title_from "$base")
+    entry="    { \"file\": \"$(json_escape "$base")\", \"title\": \"$(json_escape "$title")\" }"
+    body="$body$sep$entry"
+    sep=$',\n'
+    count=$((count + 1))
+  done < <(list_audio "$dir")
+  {
+    printf '{\n'
+    printf '  "farts": [\n'
+    [ -n "$body" ] && printf '%s\n' "$body"
+    printf '  ]\n'
+    printf '}\n'
+  } > "$out"
+  echo "wrote $out ($count clip(s))"
+}
+
 build_music
 build_voice
+build_farts

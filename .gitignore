@@ -13,3 +13,10 @@ data/leaderboard.json.tmp
 # Python bytecode cache (generated when running the leaderboard store tests).
 __pycache__/
 *.pyc
+
+# Deployment secrets -- the Cloudflare tunnel token lives here, NEVER committed.
+.env
+*.env
+
+# Local-only compose overrides (e.g. publishing a port for local verification).
+docker-compose.override.yml

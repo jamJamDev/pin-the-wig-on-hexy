@@ -1,0 +1,32 @@
+# Leaderboard API for "A True Freudian Experience" (internal: pin-the-wig-on-hexy).
+# Python 3 stdlib only -- no pip install. Static assets are served by Caddy, so
+# this image carries only the API code and stays tiny.
+# Pinned by digest (python:3.13-slim) for reproducible builds.
+FROM python@sha256:b04b5d7233d2ad9c379e22ea8927cd1378cd15c60d4ef876c065b25ea8fb3bf3
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Unprivileged runtime user with a fixed uid so the mounted data volume keeps
+# stable ownership across rebuilds.
+RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin ptwoh
+
+WORKDIR /app
+
+# Only the API modules -- no assets, no tests, no Node tooling.
+COPY scripts/dev_server.py scripts/leaderboard_store.py scripts/rate_limit.py ./scripts/
+
+# data/ is the sole writable path at runtime (a mounted named volume); pre-create
+# it owned by the runtime user so writes succeed under a read-only root filesystem.
+RUN mkdir -p /app/data && chown -R 10001:10001 /app
+
+USER 10001
+EXPOSE 8080
+
+# Liveness: the API answers GET /api/leaderboard with 200 (an empty board on a
+# fresh volume). stdlib only -- python:slim ships no curl/wget.
+HEALTHCHECK --interval=30s --timeout=4s --start-period=5s --retries=3 \
+  CMD ["python3", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/leaderboard', timeout=3).status==200 else 1)"]
+
+# chdir to /app so the store resolves /app/data/leaderboard.json.
+CMD ["python3", "scripts/dev_server.py", "8080", "/app"]

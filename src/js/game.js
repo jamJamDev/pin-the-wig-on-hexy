@@ -7,10 +7,12 @@
   // TEMP dev shortcuts for tuning the finale: with "?pinball" in the URL every
   // game start (and "Play Again") drops straight into the pinball bonus; with
   // "?blackjack" it drops straight into the blackjack showdown (as if pinball was
-  // already cleared). Remove these lines and their uses (startGame + boot) when
-  // refinement is done.
+  // already cleared); with "?slots" it drops straight into the slot-machine
+  // finale (as if pinball + blackjack were already cleared). Remove these lines
+  // and their uses (startGame + boot) when refinement is done.
   const DEV_PINBALL = /[?&#]pinball\b/.test(location.search + location.hash);
   const DEV_BLACKJACK = /[?&#]blackjack\b/.test(location.search + location.hash);
+  const DEV_SLOTS = /[?&#]slots\b/.test(location.search + location.hash);
   const BEST_KEY = "ptwoh.best";
   const MUTE_KEY = "ptwoh.muted";
   const LISTENED_KEY = "ptwoh.music.listenedFiles";
@@ -49,6 +51,13 @@
   const BLACKJACK = window.PTWOHBlackjack;
   if (!BLACKJACK || typeof BLACKJACK.createGame !== "function") {
     throw new Error("Pin the Wig on Hexy: src/js/blackjack.js failed to load");
+  }
+
+  // The final gauntlet leg: a slot machine after the blackjack win. The GOD
+  // GAMER gate depends on it, so fail loud if missing (same posture as above).
+  const SLOT = window.PTWOHSlots;
+  if (!SLOT || typeof SLOT.createGame !== "function") {
+    throw new Error("Pin the Wig on Hexy: src/js/slots.js failed to load");
   }
 
   // Non-essential extras -- guarded softly so a missing module never breaks the game.
@@ -132,6 +141,25 @@
     btnBjHit: document.getElementById("btn-bj-hit"),
     btnBjStand: document.getElementById("btn-bj-stand"),
     btnBjNext: document.getElementById("btn-bj-next"),
+    // Slot-machine finale
+    screenSlots: document.getElementById("screen-slots"),
+    slotsGrid: document.getElementById("slots-grid"),
+    slotsCredits: document.getElementById("slots-credits"),
+    slotsLines: document.getElementById("slots-lines"),
+    slotsBet: document.getElementById("slots-bet"),
+    slotsCost: document.getElementById("slots-cost"),
+    slotsProgressFill: document.getElementById("slots-progress-fill"),
+    slotsResult: document.getElementById("slots-result"),
+    slotsOverlay: document.getElementById("slots-overlay"),
+    slotsWarn: document.getElementById("slots-warn"),
+    btnSlotsSpin: document.getElementById("btn-slots-spin"),
+    btnSlotsLinesUp: document.getElementById("btn-slots-lines-up"),
+    btnSlotsLinesDown: document.getElementById("btn-slots-lines-down"),
+    btnSlotsBetUp: document.getElementById("btn-slots-bet-up"),
+    btnSlotsBetDown: document.getElementById("btn-slots-bet-down"),
+    btnSlotsMax: document.getElementById("btn-slots-max"),
+    finalSlotBonus: document.getElementById("final-slot-bonus"),
+    finalSlotCell: document.getElementById("final-slot-cell"),
     // Music player
     music: document.getElementById("music"),
     musicTitle: document.getElementById("music-title"),
@@ -203,6 +231,8 @@
       game.aimY = ht.y;
     }
     parkWig();
+    // The payline overlay is measured in pixels, so realign it to the new grid box.
+    if (game.state === "slots") requestAnimationFrame(drawPaylines);
   }
 
   // ---------- Assets ----------
@@ -305,6 +335,7 @@
     // loading | start | countdown | playing | roundEnd | roundCard | gameOver
     // Pinball bonus phase (after round 10): pinIntro | pinPlaying | pinCapture | pinDone
     // God Gamer final boss (after clearing pinball): blackjack
+    // Final gauntlet leg (after winning blackjack): slots
     state: "loading",
     round: 0,
     score: 0,
@@ -336,6 +367,10 @@
     bjPlayed: false, // did this run reach the blackjack showdown?
     bjBonus: 0,      // blackjack points earned this run (for the game-over stat)
     blackjackWon: false, // did the player win 4-of-5 to clinch GOD GAMER?
+    slot: null,      // SLOT machine state during the final leg (null otherwise)
+    slotPlayed: false, // did this run reach the slot-machine finale?
+    slotBonus: 0,    // slot points banked this run (for the game-over stat)
+    slotWon: false,  // did the player reach 2000 credits to clinch GOD GAMER?
   };
 
   const confetti = [];
@@ -371,35 +406,85 @@
 
   // ---------- Audio ----------
   let audioCtx = null;
+  let voiceComp = null;     // shared 6:1 compressor + makeup gain for voice lines
+  let voiceMakeup = null;
   let muted = localStorage.getItem(MUTE_KEY) === "1";
 
-  // Eager-loaded fart sample. Cloned per play so rapid pins overlap cleanly
-  // (an HTMLAudioElement can't replay while it's already playing).
-  const fartSample = new Audio("assets/fart.mp3");
-  fartSample.preload = "auto";
+  // Fart SFX: a random clip from assets/farts/ plays on each pin. The manifest
+  // (scripts/build_audio_manifests.sh) lists every clip; a fresh Audio per play
+  // lets rapid pins overlap cleanly. Falls back to one known clip if the
+  // manifest can't be loaded, so a pin always farts.
+  let fartUrls = ["assets/farts/fart.mp3"];
+  (async () => {
+    try {
+      const res = await fetch("assets/farts/manifest.json", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const manifest = await res.json();
+      const files = (manifest && Array.isArray(manifest.farts))
+        ? manifest.farts.filter((f) => f && f.file) : [];
+      if (files.length) {
+        fartUrls = files.map((f) => "assets/farts/" + encodeURIComponent(f.file));
+      } else {
+        console.info("Farts: manifest empty -- using fallback clip.");
+      }
+    } catch (e) {
+      console.info("Farts: no manifest (" + e.message + ") -- using fallback clip.");
+    }
+  })();
 
   function refreshMuteUI() {
     el.muteGlyph.innerHTML = muted ? "&#128263;" : "&#128266;";
     el.mute.classList.toggle("muted", muted);
   }
 
-  function beep(freq, dur, type = "sine", gain = 0.18) {
-    if (muted) return;
+  // Single shared Web Audio context, created on first sound (after a user
+  // gesture) and resumed if the browser auto-suspended it. null when Web Audio
+  // is unavailable, so every caller degrades gracefully.
+  function ensureAudioCtx() {
     if (!audioCtx) {
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
+      if (!AC) return null;
       audioCtx = new AC();
     }
     if (audioCtx.state === "suspended") audioCtx.resume();
-    const t = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
+    return audioCtx;
+  }
+
+  // Voice lines route through a 6:1 compressor + makeup gain so quieter passages
+  // -- and the volume trail-offs at the end of a clip -- come up to an even,
+  // easy-to-hear level. The compressor caps the peaks first, so the makeup gain
+  // lifts the whole clip (raising the quiet parts) without risking clipping.
+  // Built once and shared: clips never overlap, so one chain serves them all.
+  function voiceInputNode() {
+    const ctx = ensureAudioCtx();
+    if (!ctx) return null;
+    if (!voiceComp) {
+      voiceComp = ctx.createDynamicsCompressor();
+      voiceComp.threshold.value = -24; // start riding the level below peak speech
+      voiceComp.knee.value = 30;       // soft knee -> natural, not obviously pumped
+      voiceComp.ratio.value = 6;       // 6:1
+      voiceComp.attack.value = 0.003;  // grab transients quickly
+      voiceComp.release.value = 0.25;  // let go smoothly between words
+      voiceMakeup = ctx.createGain();
+      voiceMakeup.gain.value = 3.2;    // ~+10 dB makeup -> lift the now-tamed signal
+      voiceComp.connect(voiceMakeup).connect(ctx.destination);
+    }
+    return voiceComp;
+  }
+
+  function beep(freq, dur, type = "sine", gain = 0.18) {
+    if (muted) return;
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(gain, t + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(g).connect(audioCtx.destination);
+    osc.connect(g).connect(ctx.destination);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
@@ -410,7 +495,8 @@
 
   function fart(volume = 0.7) {
     if (muted) return;
-    const a = fartSample.cloneNode();
+    const url = fartUrls[(Math.random() * fartUrls.length) | 0];
+    const a = new Audio(url);
     a.volume = volume;
     a.play().catch(() => {});
   }
@@ -439,8 +525,65 @@
     beep(540, 0.05, "triangle", 0.08);
   }
 
+  // Rate gate for the pinball bounce cue: when the ball rattles in a corner the
+  // bounce sound can fire many times per second and turn into a machine-gun
+  // buzz. Track the consecutive "rapid" streak and suppress the 4th and beyond
+  // until a gap >= RAPID_GAP_MS breaks the streak (which re-enables the sound).
+  // 100ms (~10 bounces/s) is comfortably below a real rattle's rate yet well
+  // above any musical pace of distinct, intended bounces, so normal spaced
+  // bounces always play and only true buzz is muted.
+  function makeBounceGate(rapidGapMs) {
+    var lastMs = -Infinity;
+    var rapidCount = 0;
+    return {
+      allow: function (now) {
+        if (now - lastMs < rapidGapMs) rapidCount += 1;
+        else rapidCount = 1;
+        lastMs = now;
+        return rapidCount < 4;
+      }
+    };
+  }
+  var bounceGate = makeBounceGate(100);
+
   function sfxUnlock() {
     chord([784, 1046, 1318], 0.18, "triangle");
+  }
+
+  // A pitch glide from f0 to f1 -- used for the slot's "winding up" whoosh.
+  function sweep(f0, f1, dur, type, gain) {
+    if (muted) return;
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type || "sawtooth";
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain || 0.12, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+
+  // ---------- Slot-machine spin SFX ----------
+  // The reels wind up (rising whoosh), tick while rolling, and each reel locks
+  // with a mechanical thunk plus an ascending note -- so the five stops play a
+  // little rising melody, paid off by the win/loss jingle on settle.
+  const REEL_STOP_NOTES = [392, 440, 494, 587, 659];   // G A B D E -- a clean rising run
+  function sfxSpinStart() {
+    sweep(150, 560, 0.34, "sawtooth", 0.12);
+    beep(220, 0.08, "square", 0.06);
+  }
+  function sfxReelTick() {
+    beep(720 + Math.random() * 380, 0.02, "square", 0.035);
+  }
+  function sfxReelStop(col) {
+    beep(120, 0.07, "sine", 0.12);                                  // the thunk
+    beep(REEL_STOP_NOTES[col] || 392, 0.14, "triangle", 0.15);      // the rising note
   }
 
   // ---------- Game flow ----------
@@ -462,6 +605,10 @@
     game.bjPlayed = false;
     game.bjBonus = 0;
     game.blackjackWon = false;
+    game.slot = null;
+    game.slotPlayed = false;
+    game.slotBonus = 0;
+    game.slotWon = false;
     resetPinInput();
     game.seed = (((Date.now() & 0xffffffff) ^ ((Math.random() * 0xffffffff) | 0)) >>> 0) || 1;
     game.modifierPlan = MOD.buildPlan(game.seed);
@@ -474,8 +621,18 @@
     show(el.screenOver, false);
     el.hud.classList.remove("hidden");
     el.hud.setAttribute("aria-hidden", "false");
-    // TEMP: jump straight to a finale phase for tuning. ?blackjack pretends the
-    // pinball finale was already cleared so the win gate is consistent.
+    // TEMP: jump straight to a finale phase for tuning. ?blackjack and ?slots
+    // pretend the earlier legs were already cleared so the win gate is consistent.
+    if (DEV_SLOTS) {
+      game.round = TOTAL_ROUNDS;
+      game.pinPlayed = true;
+      game.pinCleared = PINBALL.CAPTURE_GOAL;
+      game.pinVictory = true;
+      game.bjPlayed = true;
+      game.blackjackWon = true;
+      startSlots();
+      return;
+    }
     if (DEV_BLACKJACK) {
       game.round = TOTAL_ROUNDS;
       game.pinPlayed = true;
@@ -593,7 +750,7 @@
       spawnConfetti(tier.points >= 1000 ? 1 : 0.6);
       sfxPin(tier.points);
       fart();
-      // Aftershock puff to land on the small second fart in the sample.
+      // Aftershock puff a beat later, riding the fart's tail.
       setTimeout(() => spawnConfetti(0.2), 1600);
     } else {
       wig.held = false;
@@ -664,12 +821,16 @@
     // is never diluted by points it had no shot at earning.
     const maxScore = TOTAL_ROUNDS * 1000
       + (game.pinPlayed ? PINBALL.maxScore() : 0)
-      + (game.bjPlayed ? BLACKJACK.maxScore() : 0);
+      + (game.bjPlayed ? BLACKJACK.maxScore() : 0)
+      + (game.slotPlayed ? SLOT.maxScore() : 0);
     const acc = Math.round((game.score / maxScore) * 100);
     // The win (GOD GAMER) is the full gauntlet: qualify on base score, pin the
-    // wig on all five pinball course variations, THEN beat the True God Gamer at blackjack
-    // (win 4 of 5 hands). Falling short at any stage is not a win.
-    const won = game.pinPlayed && game.pinCleared >= PINBALL.CAPTURE_GOAL && game.blackjackWon;
+    // wig on all five pinball course variations, beat the True God Gamer at
+    // blackjack (win 4 of 5 hands), THEN turn 1000 credits into 2000 on the
+    // slot machine. Falling short at any stage -- including busting the slot --
+    // is not a win.
+    const won = game.pinPlayed && game.pinCleared >= PINBALL.CAPTURE_GOAL
+      && game.blackjackWon && game.slotWon;
     const rank = RANKS.rankFor(game.score, maxScore, won);
     const isGod = RANKS.isGodGamer(rank);
 
@@ -686,12 +847,14 @@
     el.finalBestRound.textContent = game.bestRound;
     if (el.finalPinBonus) el.finalPinBonus.textContent = "+" + game.pinBonus;
     if (el.finalBjBonus) el.finalBjBonus.textContent = "+" + game.bjBonus;
+    if (el.finalSlotBonus) el.finalSlotBonus.textContent = "+" + game.slotBonus;
     // Keep the finale phases a surprise: a phase's score (and even its name) only
     // appears once the run actually reached it. A short run that never unlocked
     // pinball -- or one that failed pinball before blackjack -- shows no trace of
     // the stage it never saw.
     if (el.finalPinCell) show(el.finalPinCell, game.pinPlayed);
     if (el.finalBjCell) show(el.finalBjCell, game.bjPlayed);
+    if (el.finalSlotCell) show(el.finalSlotCell, game.slotPlayed);
     el.finalVerdict.textContent = rank.blurb;
     // The forfeiture-clause payoff: anyone short of the top rank is told, loudly.
     show(el.finalNotGod, !isGod);
@@ -798,6 +961,9 @@
 
     if (ev.flipperHit) beep(300, 0.05, "square", 0.10);
     if (ev.bumper) beep(720, 0.05, "triangle", 0.12);
+    // Bounce cue, rate-gated so a corner rattle can't machine-gun the speaker.
+    // beep()'s own `muted` check still applies on top of this.
+    if (ev.bounced && bounceGate.allow(performance.now())) beep(180, 0.04, "sawtooth", 0.08);
     if (ev.captured) { onPinCapture(); return; }
     if (ev.drained) { onPinDrain(); }
   }
@@ -1287,6 +1453,398 @@
     game.blackjackWon = won;
     game.bj = null;
     show(el.screenBlackjack, false);
+    // Beating the True God Gamer earns the final gauntlet leg: the slot machine.
+    // A loss ends the run here (the rank screen), mirroring how blackjack itself
+    // is gated on a pinball victory.
+    if (won) startSlots();
+    else endGame();
+  }
+
+  // ---------- Slot-machine finale ----------
+  // The last leg of the GOD GAMER gauntlet. The pure credit/bet/rig logic lives
+  // in SLOT (src/js/slots.js); this section is the I/O shell: bet/spin buttons
+  // -> SLOT mutators, results -> DOM render + animated juice. Flow:
+  //   finishBlackjack(true) -> startSlots() -> state "slots"
+  //   spin -> roll animation -> settle -> (reach 2000 / still in the red?) ...
+  //   finishSlots(true)  reached 2000 (GOD GAMER leg cleared)
+  //   finishSlots(false) ended in the red (bust: leg failed)
+  //   finishSlots(won) -> endGame()  (the existing rank screen, reused)
+  //
+  // slotCells[col][row] caches the live cell <div>s so the roll animation can
+  // re-glyph them per frame without rebuilding the grid (which would reset the
+  // CSS animations). slotAnim holds the in-flight spin's animation state, or null.
+  var slotCells = [];
+  var slotAnim = null;
+
+  function startSlots() {
+    game.advancing = false;
+    game.slotPlayed = true;
+    game.slotWon = false;
+    game.slotBonus = 0;
+    game.slot = SLOT.createGame(game.seed);
+    game.state = "slots";
+    slotAnim = null;
+    el.hud.classList.add("hidden");
+    el.hud.setAttribute("aria-hidden", "true");
+    slotsRender();
+    show(el.screenSlots, true);
+    // The grid is display:none until the line above, and the browser's first
+    // layout pass can briefly use a provisional viewport. Force the layout, then
+    // redraw the overlay across the next frames and once more after a short
+    // settle, so the paylines land on the final cell box at any size.
+    schedulePaylines();
+    chord([523, 659, 784, 988], 0.16);
+    playVoiceLine();
+  }
+
+  // Redraw the payline overlay across a couple of frames plus a short settle.
+  // drawPaylines() is idempotent and cheap (it re-measures each call), so the
+  // last pass always wins -- the overlay tracks the grid's final box.
+  function schedulePaylines() {
+    void el.slotsGrid.offsetWidth;                 // flush any pending layout
+    requestAnimationFrame(function () {
+      drawPaylines();
+      requestAnimationFrame(drawPaylines);
+    });
+    setTimeout(function () { if (game.state === "slots") drawPaylines(); }, 250);
+  }
+
+  // Render the 5x5 grid, the credit/bet/lines readouts, the progress bar toward
+  // 2000, and the last spin's result. Mirrors bjRender(): pure DOM, no canvas.
+  function slotsRender() {
+    var g = game.slot;
+    if (!g) return;
+    var lr = g.lastResult;
+    // Tag each winning cell with its payline's hue (same formula drawPaylines uses
+    // for the bright overlay stroke), so a cell glows in the exact colour of the
+    // line it belongs to. Each winning line is a single symbol along one path, and
+    // distinct lines always use distinct symbols -- colouring per line is what lets
+    // the eye separate two lines that interleave across the same rows (e.g. a rat
+    // zigzag crossing a wig zigzag), instead of reading the mixed strip as one row
+    // where the rat looks like a wild.
+    var winHue = {};
+    if (lr) {
+      for (var w = 0; w < lr.winningLines.length; w++) {
+        var wl = lr.winningLines[w];
+        var lineHue = Math.round((wl.lineIndex / SLOT.MAX_LINES) * 330);
+        for (var c = 0; c < wl.count; c++) winHue[wl.line[c] + "," + c] = lineHue;
+      }
+    }
+    // Reels: one column element per reel, five symbol cells each. Cache the cells
+    // for the roll animation + payline measurement.
+    el.slotsGrid.textContent = "";
+    slotCells = [];
+    for (var col = 0; col < SLOT.REELS; col++) {
+      var reel = document.createElement("div");
+      reel.className = "slots-reel";
+      slotCells[col] = [];
+      for (var row = 0; row < SLOT.ROWS; row++) {
+        var cell = document.createElement("div");
+        var cellKey = row + "," + col;
+        var isWin = Object.prototype.hasOwnProperty.call(winHue, cellKey);
+        cell.className = "slots-cell" + (isWin ? " is-win" : "");
+        if (isWin) cell.style.setProperty("--win-hue", winHue[cellKey]);
+        cell.textContent = SLOT.SYMBOLS[g.grid[row][col]].glyph;
+        reel.appendChild(cell);
+        slotCells[col][row] = cell;
+      }
+      el.slotsGrid.appendChild(reel);
+    }
+
+    var cost = SLOT.spinCost(g);
+    el.slotsCredits.textContent = g.credits;
+    el.slotsCredits.classList.toggle("is-debt", g.credits < 0);
+    el.slotsLines.textContent = g.lines;
+    el.slotsBet.textContent = SLOT.betPerLine(g);
+    el.slotsCost.textContent = cost;
+    var pct = Math.max(0, Math.min(1, (g.credits - SLOT.START_CREDITS) /
+      (SLOT.TARGET_CREDITS - SLOT.START_CREDITS)));
+    el.slotsProgressFill.style.transform = "scaleX(" + pct + ")";
+
+    // Result banner: a win is green, a losing spin red, the pre-spin state neutral.
+    if (lr) {
+      if (lr.win) {
+        el.slotsResult.textContent = "+" + lr.payout + "  (net +" + lr.delta + ")";
+        el.slotsResult.className = "slots-result is-win";
+      } else {
+        el.slotsResult.textContent = "No pay — " + lr.cost + " gone";
+        el.slotsResult.className = "slots-result is-lose";
+      }
+    } else {
+      el.slotsResult.textContent = "Turn 1000 into 2000. Or go home broke.";
+      el.slotsResult.className = "slots-result";
+    }
+
+    // The spin button is disabled only when even the smallest allowed stake would
+    // breach the debt limit -- so the player can always act (lower the bet).
+    var canSpin = SLOT.canSpin(g);
+    el.btnSlotsSpin.disabled = !canSpin;
+    el.btnSlotsSpin.classList.toggle("is-disabled", !canSpin);
+
+    // Debt-risk warning: the stake is allowed but dips below zero, so a losing
+    // spin would end the run. Or the stake is over the limit entirely.
+    updateSlotWarning(g, cost, canSpin);
+
+    // Repaint the active paylines (next frame, once layout settles).
+    requestAnimationFrame(drawPaylines);
+  }
+
+  function updateSlotWarning(g, cost, canSpin) {
+    if (!el.slotsWarn) return;
+    var msg = "";
+    if (!canSpin) {
+      msg = "⚠ That stake's over the limit — lower the bet or fewer lines to spin.";
+    } else if (g.credits - cost < 0) {
+      msg = "⚠ This stake dips into debt (" + (g.credits - cost) +
+        ") — a losing spin ends the run. Lower the bet to play it safe.";
+    }
+    el.slotsWarn.textContent = msg;
+    show(el.slotsWarn, !!msg);
+  }
+
+  // Subtle SVG overlay of the active paylines, drawn through measured cell
+  // centers so it stays aligned at any size. Each line gets its own hue (a quiet
+  // rainbow), and the spin's winning lines are drawn bright on top. Recomputed
+  // whenever the line count changes or the window resizes.
+  function drawPaylines() {
+    var g = game.slot;
+    var svg = el.slotsOverlay;
+    if (!g || !svg) return;
+    var gridRect = el.slotsGrid.getBoundingClientRect();
+    if (gridRect.width < 4 || gridRect.height < 4) return;   // not laid out yet
+    svg.setAttribute("viewBox", "0 0 " + gridRect.width + " " + gridRect.height);
+    // Measure each cell center once, relative to the grid box.
+    var cx = [], cy = [];
+    for (var col = 0; col < SLOT.REELS; col++) {
+      cx[col] = []; cy[col] = [];
+      for (var row = 0; row < SLOT.ROWS; row++) {
+        var cell = slotCells[col] && slotCells[col][row];
+        if (!cell) { return; }
+        var r = cell.getBoundingClientRect();
+        cx[col][row] = (r.left + r.right) / 2 - gridRect.left;
+        cy[col][row] = (r.top + r.bottom) / 2 - gridRect.top;
+      }
+    }
+    var lr = g.lastResult;
+    // lineIndex -> winning run length. A win is only the LEFT-ANCHORED run of
+    // `count` cells (often 3 or 4, not the whole 5-cell line), so the bright
+    // overlay must stop at `count` -- drawing it across the full shape would run
+    // it through the trailing columns over symbols that never matched, making an
+    // invalid tail cell look like it completed the line.
+    var wonCount = {};
+    if (lr) for (var k = 0; k < lr.winningLines.length; k++) {
+      wonCount[lr.winningLines[k].lineIndex] = lr.winningLines[k].count;
+    }
+    var lines = SLOT.activeLines(g);
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var SVGNS = "http://www.w3.org/2000/svg";
+
+    function addLine(line, hue, len, bright) {
+      var pts = "";
+      for (var c = 0; c < len; c++) {
+        pts += cx[c][line[c]].toFixed(1) + "," + cy[c][line[c]].toFixed(1) + " ";
+      }
+      var pl = document.createElementNS(SVGNS, "polyline");
+      pl.setAttribute("points", pts.trim());
+      pl.setAttribute("fill", "none");
+      pl.setAttribute("stroke", "hsl(" + hue + " 90% 65%)");
+      pl.setAttribute("stroke-width", bright ? "3.4" : "1.5");
+      pl.setAttribute("stroke-opacity", bright ? "0.95" : "0.22");
+      pl.setAttribute("stroke-linejoin", "round");
+      pl.setAttribute("stroke-linecap", "round");
+      if (bright) pl.setAttribute("class", "win");
+      svg.appendChild(pl);
+    }
+
+    // Every active payline as a faint full-shape guide (what you're betting on)...
+    for (var i = 0; i < lines.length; i++) {
+      addLine(lines[i], Math.round((i / SLOT.MAX_LINES) * 330), SLOT.REELS, false);
+    }
+    // ...then the bright winning segment over ONLY its run cells, on top, in the
+    // same hue as that line's glowing cells -- so line and cells agree exactly.
+    for (var j = 0; j < lines.length; j++) {
+      if (Object.prototype.hasOwnProperty.call(wonCount, j)) {
+        addLine(lines[j], Math.round((j / SLOT.MAX_LINES) * 330), wonCount[j], true);
+      }
+    }
+  }
+
+  // Disable the bet/line controls during a roll (the spin button is owned by
+  // slotsRender's canSpin check + the explicit lock at spin start).
+  function setSlotsBusy(busy) {
+    var btns = [el.btnSlotsLinesUp, el.btnSlotsLinesDown, el.btnSlotsBetUp,
+                el.btnSlotsBetDown, el.btnSlotsMax];
+    for (var i = 0; i < btns.length; i++) if (btns[i]) btns[i].disabled = busy;
+  }
+
+  function pulseCredits() {
+    if (reduceMotion) return;
+    var n = el.slotsCredits;
+    n.classList.remove("is-pop");
+    void n.offsetWidth;       // restart the animation
+    n.classList.add("is-pop");
+  }
+
+  function slotAdjustLines(delta) {
+    var g = game.slot;
+    if (!g || g.complete || g.bust || slotAnim) return;
+    SLOT.setLines(g, g.lines + delta);
+    sfxClick();
+    slotsRender();
+  }
+
+  function slotAdjustBet(delta) {
+    var g = game.slot;
+    if (!g || g.complete || g.bust || slotAnim) return;
+    SLOT.setBet(g, g.betIndex + delta);
+    sfxClick();
+    slotsRender();
+  }
+
+  function slotMaxBet() {
+    var g = game.slot;
+    if (!g || g.complete || g.bust || slotAnim) return;
+    // Largest bet-per-line whose full-line cost the bankroll can still cover.
+    for (var idx = SLOT.BET_TIERS.length - 1; idx >= 0; idx--) {
+      if (g.lines * SLOT.BET_TIERS[idx] <= g.credits) { SLOT.setBet(g, idx); break; }
+    }
+    sfxClick();
+    slotsRender();
+  }
+
+  function slotSpin() {
+    var g = game.slot;
+    if (!g || g.complete || g.bust || slotAnim) return;
+    if (!SLOT.canSpin(g)) return;          // over the debt limit -> button disabled
+    SLOT.spin(g);                          // compute the (deterministic) result up front
+    var lr = g.lastResult;
+    var finalGrid = g.grid;
+    var staked = g.credits - lr.payout;    // balance after staking, before payout
+
+    if (reduceMotion) {
+      // No rolling or flashing -- reveal the result and settle immediately.
+      slotsRender();
+      settleSlot(lr);
+      return;
+    }
+
+    // Light up the machine and start the reels rolling.
+    setSlotsBusy(true);
+    el.btnSlotsSpin.disabled = true;
+    el.slotsGrid.classList.add("is-spinning");
+    if (el.slotsOverlay) el.slotsOverlay.classList.add("is-spinning");
+    el.slotsCredits.textContent = staked;
+    el.slotsCredits.classList.toggle("is-debt", staked < 0);
+    el.slotsResult.textContent = "Rolling…";
+    el.slotsResult.className = "slots-result is-rolling";
+    if (el.slotsWarn) show(el.slotsWarn, false);
+    sfxSpinStart();
+
+    var base = 480, stagger = 190;
+    slotAnim = {
+      start: 0, lastFlick: 0, lastTick: 0,
+      finalGrid: finalGrid, lr: lr,
+      stopAt: [base, base + stagger, base + 2 * stagger, base + 3 * stagger, base + 4 * stagger],
+      stopped: [false, false, false, false, false]
+    };
+    requestAnimationFrame(slotAnimFrame);
+  }
+
+  var SLOT_FLICK_MS = 55;
+  function slotAnimFrame(ts) {
+    var a = slotAnim, g = game.slot;
+    if (!a || !g) { slotAnim = null; return; }
+    if (!a.start) { a.start = ts; a.lastFlick = ts; a.lastTick = ts; }
+    var elapsed = ts - a.start;
+
+    // Lock reels left-to-right as each one's stop time arrives.
+    for (var col = 0; col < SLOT.REELS; col++) {
+      if (!a.stopped[col] && elapsed >= a.stopAt[col]) {
+        a.stopped[col] = true;
+        lockReelColumn(col, a.finalGrid);
+        sfxReelStop(col);
+      }
+    }
+    // Flicker random symbols on the reels still spinning.
+    if (ts - a.lastFlick >= SLOT_FLICK_MS) {
+      a.lastFlick = ts;
+      for (var c2 = 0; c2 < SLOT.REELS; c2++) if (!a.stopped[c2]) flickReelColumn(c2);
+      if (ts - a.lastTick >= SLOT_FLICK_MS * 1.5) { a.lastTick = ts; sfxReelTick(); }
+    }
+    var allStopped = true;
+    for (var c3 = 0; c3 < SLOT.REELS; c3++) if (!a.stopped[c3]) allStopped = false;
+    if (allStopped) { endSlotAnim(); return; }
+    requestAnimationFrame(slotAnimFrame);
+  }
+
+  function flickReelColumn(col) {
+    var cells = slotCells[col];
+    if (!cells) return;
+    for (var row = 0; row < SLOT.ROWS; row++) {
+      cells[row].textContent = SLOT.SYMBOLS[(Math.random() * SLOT.SYMBOLS.length) | 0].glyph;
+    }
+  }
+
+  function lockReelColumn(col, finalGrid) {
+    var cells = slotCells[col];
+    if (!cells) return;
+    for (var row = 0; row < SLOT.ROWS; row++) {
+      cells[row].textContent = SLOT.SYMBOLS[finalGrid[row][col]].glyph;
+    }
+    var reel = cells[0] && cells[0].parentNode;
+    if (reel) { reel.classList.remove("just-stopped"); void reel.offsetWidth; reel.classList.add("just-stopped"); }
+  }
+
+  function endSlotAnim() {
+    slotAnim = null;
+    el.slotsGrid.classList.remove("is-spinning");
+    if (el.slotsOverlay) el.slotsOverlay.classList.remove("is-spinning");
+    var lr = game.slot ? game.slot.lastResult : null;
+    slotsRender();               // final grid + win highlights + readouts + overlay
+    if (lr) settleSlot(lr);
+  }
+
+  // The win/loss payoff, shared by the animated and reduced-motion paths.
+  function settleSlot(lr) {
+    var g = game.slot;
+    if (lr.win) {
+      sfxPin(900 + Math.min(600, lr.payout));
+      pulseCredits();
+      if (lr.delta >= lr.cost * 3) {            // a big hit gets the full celebration
+        fart();
+        spawnConfettiAt(view.w / 2, view.h * 0.30, 0.8);
+        game.shake = reduceMotion ? 0 : 8;
+      } else {
+        chord([523, 659, 784], 0.1);
+      }
+    } else {
+      sfxMiss();
+      playVoiceLine();        // a random voice line razzes the player on a loss
+    }
+    if (!g) return;
+    if (g.complete) { setTimeout(function () { onSlotResolved(true); }, 700); return; }
+    if (g.bust) { setTimeout(function () { onSlotResolved(false); }, 700); return; }
+    setSlotsBusy(false);          // ready for the next spin
+  }
+
+  function onSlotResolved(won) {
+    // Brief beat so the final reels/credits register before the rank screen.
+    if (won) {
+      chord([659, 784, 988, 1318, 1568], 0.3);
+      spawnConfettiAt(view.w / 2, view.h * 0.32, 1);
+    } else {
+      game.shake = reduceMotion ? 0 : 14;
+    }
+    playVoiceLine();
+    finishSlots(won);
+  }
+
+  function finishSlots(won) {
+    game.slotWon = won;
+    game.slotBonus = SLOT.slotBonus(game.slot);
+    game.score += game.slotBonus;
+    game.slot = null;
+    show(el.screenSlots, false);
     endGame();
   }
 
@@ -1600,6 +2158,12 @@
   if (el.btnBjHit) el.btnBjHit.addEventListener("click", () => { sfxClick(); bjHit(); });
   if (el.btnBjStand) el.btnBjStand.addEventListener("click", () => { sfxClick(); bjStand(); });
   if (el.btnBjNext) el.btnBjNext.addEventListener("click", () => { sfxClick(); bjNext(); });
+  if (el.btnSlotsSpin) el.btnSlotsSpin.addEventListener("click", () => { slotSpin(); });
+  if (el.btnSlotsLinesUp) el.btnSlotsLinesUp.addEventListener("click", () => { slotAdjustLines(1); });
+  if (el.btnSlotsLinesDown) el.btnSlotsLinesDown.addEventListener("click", () => { slotAdjustLines(-1); });
+  if (el.btnSlotsBetUp) el.btnSlotsBetUp.addEventListener("click", () => { slotAdjustBet(1); });
+  if (el.btnSlotsBetDown) el.btnSlotsBetDown.addEventListener("click", () => { slotAdjustBet(-1); });
+  if (el.btnSlotsMax) el.btnSlotsMax.addEventListener("click", () => { slotMaxBet(); });
   el.mute.addEventListener("click", () => {
     muted = !muted;
     try { localStorage.setItem(MUTE_KEY, muted ? "1" : "0"); } catch (_) {}
@@ -1620,6 +2184,15 @@
       } else if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); bjNext(); }
       return;
     }
+    if (game.state === "slots") {
+      if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); slotSpin(); }
+      else if (e.code === "ArrowUp") { e.preventDefault(); slotAdjustBet(1); }
+      else if (e.code === "ArrowDown") { e.preventDefault(); slotAdjustBet(-1); }
+      else if (e.code === "ArrowRight") { e.preventDefault(); slotAdjustLines(1); }
+      else if (e.code === "ArrowLeft") { e.preventDefault(); slotAdjustLines(-1); }
+      else if (e.code === "KeyM") { e.preventDefault(); slotMaxBet(); }
+      return;
+    }
     if (game.state === "pinIntro") {
       if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); beginPinPlay(); }
       return;
@@ -1637,6 +2210,17 @@
   });
 
   window.addEventListener("resize", resize);
+
+  // The payline overlay is measured in pixels, and the grid only gets its real
+  // box once #screen-slots is shown (and again as fonts/clamp() sizing settle).
+  // A ResizeObserver redraws on every box change, so the lines always track the
+  // cells -- more reliable than a one-shot measure after show().
+  if (window.ResizeObserver && el.slotsGrid) {
+    var slotsResizeObs = new ResizeObserver(function () {
+      if (game.state === "slots" && !slotAnim) drawPaylines();
+    });
+    slotsResizeObs.observe(el.slotsGrid);
+  }
 
   // ---------- Helpers ----------
   function show(node, visible) {
@@ -1705,8 +2289,10 @@
     }
     radio.tracks = tracks;
     radio.album = manifest.album || "Hexy Radio";
-    const indices = tracks.map((_, i) => i);
-    radio.order = RADIO.dayOrder(indices, RADIO.dayIndex(Date.now()));
+    // Play the album in track order (01..N, as named in the manifest). The
+    // wall-clock timeline below still derives the live position, so the loop
+    // resumes where the station "would" be -- in album sequence, not shuffled.
+    radio.order = tracks.map((_, i) => i);
     radio.durations = RADIO.normalizeDurations(radio.order.map((i) => tracks[i].duration));
 
     radio.volume = loadVolume();
@@ -1739,6 +2325,7 @@
     updatePlayPauseUi();
     show(el.music, true);
     radio.ready = true;
+    reconcileProgress(listenedFiles, LISTENED_KEY, radio.tracks.map((t) => t.file));
     evalAndApply(true);   // reconcile achievement totals now song count is known
   }
 
@@ -2128,6 +2715,7 @@
       el.voiceDownload.addEventListener("click", downloadVoiceLines);
       show(el.voiceDownload, voice.clips.length > 0);
     }
+    reconcileProgress(heardFiles, HEARD_KEY, voice.clips.map((c) => c.file));
     evalAndApply(true);   // reconcile achievement totals now clip count is known
   }
 
@@ -2165,8 +2753,20 @@
     const clip = voice.queue.shift();
     const a = new Audio(voiceUrl(clip.file));
     voice.current = a;
+    // Route this clip through the shared compressor so its trail-offs stay
+    // audible. If Web Audio is unavailable or the element can't be tapped, the
+    // clip still plays on its own (uncompressed but never silent).
+    let src = null;
+    const input = voiceInputNode();
+    if (input) {
+      try {
+        src = audioCtx.createMediaElementSource(a);
+        src.connect(input);
+      } catch (_) { src = null; }
+    }
     const advance = () => {
       if (voice.current !== a) return;
+      if (src) { try { src.disconnect(); } catch (_) {} }
       voice.current = null;
       playNextVoice();
     };
@@ -2197,6 +2797,22 @@
   }
   function saveArray(key, arr) {
     try { localStorage.setItem(key, JSON.stringify(arr)); } catch (_) {}
+  }
+
+  // Drop saved progress for files no longer in the manifest, so a changed album
+  // or voice-line set can't leave the count stuck above the current total (the
+  // sets are keyed by file name, so a removed/renamed file simply stops
+  // counting). An EMPTY list means the manifest didn't load -- treat that as
+  // "unknown", not "everything removed", and prune nothing so a transient fetch
+  // failure never wipes real progress.
+  function reconcileProgress(set, key, validFiles) {
+    if (!validFiles || validFiles.length === 0) return;
+    const valid = new Set(validFiles);
+    let changed = false;
+    [...set].forEach((file) => {
+      if (!valid.has(file)) { set.delete(file); changed = true; }
+    });
+    if (changed) saveSet(key, set);
   }
 
   function bootAchievements() {
@@ -2233,11 +2849,18 @@
       heardFiles.size, voice.clips.length
     );
     const fresh = ACH.newlyUnlocked(unlockedIds, current);
-    if (fresh.length) {
-      fresh.forEach((id) => unlockedIds.push(id));
+    // Reconcile against current reality: this ADDS new unlocks AND REVOKES a
+    // completion badge that no longer holds (e.g. new voice lines pushed the
+    // library past what the player has heard). Milestones stay earned; ids with
+    // no current definition are dropped.
+    const reconciled = ACH.reconcileEarned(unlockedIds, current);
+    const changed = reconciled.length !== unlockedIds.length ||
+      reconciled.some((id, i) => unlockedIds[i] !== id);
+    if (changed) {
+      unlockedIds = reconciled;
       saveArray(ACH_KEY, unlockedIds);
-      if (!silent) fresh.forEach(showToast);
     }
+    if (!silent) fresh.forEach(showToast);
     renderAchList();
     updateTrophyBadge();
   }
@@ -2541,7 +3164,7 @@
     loadAssets().then(() => {
       game.state = "start";
       parkWig();
-      if (DEV_PINBALL || DEV_BLACKJACK) startGame();   // TEMP: auto-enter a finale phase for tuning
+      if (DEV_PINBALL || DEV_BLACKJACK || DEV_SLOTS) startGame();   // TEMP: auto-enter a finale phase for tuning
     });
     requestAnimationFrame(frame);
   }

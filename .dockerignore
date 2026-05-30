@@ -1,0 +1,30 @@
+# The API image build only needs scripts/*.py (see Dockerfile.api). Keep the
+# build context small and ensure secrets/local state never reach an image layer.
+.git
+.gitignore
+.dockerignore
+**/.DS_Store
+.claude
+.ruff_cache
+__pycache__
+**/__pycache__
+*.pyc
+
+# Secrets and runtime state -- never bake into an image.
+.env
+*.env
+data/
+
+# Not needed at runtime (Caddy serves static via bind mounts, not the image).
+tests
+node_modules
+package.json
+package-lock.json
+test.sh
+run_pin_the_wig_on_hexy.sh
+scripts/build_audio_manifests.sh
+docker-compose.override.yml
+
+# Docs / planning.
+*.md
+plans

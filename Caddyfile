@@ -1,0 +1,64 @@
+# Edge for "A True Freudian Experience". Caddy serves the static game with proper
+# caching, compression, and security headers, and reverse-proxies ONLY /api/* to
+# the Python leaderboard service. Cloudflare terminates TLS at the edge, so this
+# listens on plain HTTP on the internal Docker network -- never published to the host.
+:8080 {
+	root * /srv
+
+	# Compress text only. Audio (audio/*) is left untouched so HTTP Range -- which
+	# the radio's seek-to-live depends on -- keeps working (a compressed body has
+	# no stable byte offsets).
+	encode {
+		zstd
+		gzip
+		match {
+			header Content-Type text/*
+			header Content-Type application/json*
+			header Content-Type application/javascript*
+			header Content-Type image/svg+xml*
+		}
+	}
+
+	# API: proxy only /api/* to the Python service. Forward the real visitor IP
+	# (Cloudflare's CF-Connecting-IP) so the server's rate limiter keys on it.
+	@api path /api/*
+	reverse_proxy @api api:8080 {
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	}
+
+	# Immutable media (the expensive ~99 MB of audio/art) -> edge-cacheable for a
+	# year. Manifests are excluded so the two matchers never overlap (Caddy does not
+	# guarantee a later header directive wins an overlap).
+	@media {
+		path /assets/*
+		not path */manifest.json
+	}
+	header @media Cache-Control "public, max-age=31536000, immutable"
+
+	# Manifests must revalidate so added/removed tracks appear without a cache purge
+	# (the client already fetches them no-store).
+	@manifests path /assets/*/manifest.json
+	header @manifests Cache-Control "no-cache"
+
+	# HTML + JS/CSS revalidate every load: index.html references src/js/* with no
+	# cache-busting query, so a year-long cache would strand returning players on
+	# stale code. The payload is small, so 304s are cheap.
+	@app path / /index.html /src/*
+	header @app Cache-Control "no-cache"
+
+	# Security headers on every response (including proxied /api). The CSP is
+	# verified against the codebase: all scripts/styles are same-origin files, no
+	# inline scripts/handlers/eval -- only the canvas fallback art needs img-src data:.
+	header {
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; media-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), usb=()"
+		-Server
+	}
+
+	# file_server does NOT autoindex by default, so /assets/ and /src/ cannot be
+	# enumerated. It handles Range automatically for the audio.
+	file_server
+}

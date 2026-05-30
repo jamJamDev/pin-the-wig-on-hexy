@@ -1,16 +1,16 @@
 {
   "album": "Drunk Boy Parade",
   "tracks": [
-    { "file": "01 - Florida Rat King.mp3", "title": "Florida Rat King", "duration": 276.279979 },
-    { "file": "02 - Black Candle.mp3", "title": "Black Candle", "duration": 166.799979 },
-    { "file": "03 - John.mp3", "title": "John", "duration": 223.119979 },
-    { "file": "04 - Fake Legend.mp3", "title": "Fake Legend", "duration": 271.399979 },
-    { "file": "05 - Hexy Dumb Hex.mp3", "title": "Hexy Dumb Hex", "duration": 58.079979 },
-    { "file": "06 - Intro to Detroit.mp3", "title": "Intro to Detroit", "duration": 175.719979 },
-    { "file": "07 - Metal Hexifier..mp3", "title": "Metal Hexifier.", "duration": 208.679979 },
-    { "file": "08 - Rodent Royalty.mp3", "title": "Rodent Royalty", "duration": 300.199979 },
-    { "file": "09 - Chasing the Whip.mp3", "title": "Chasing the Whip", "duration": 144.919979 },
-    { "file": "10 - Rise.mp3", "title": "Rise", "duration": 220.679979 },
-    { "file": "11 - Horror Scene.mp3", "title": "Horror Scene", "duration": 184.919979 }
+    { "file": "Heavy Colors - 01 - Florida Rat King.mp3", "title": "Heavy Colors 01 Florida Rat King", "duration": 276.279979 },
+    { "file": "Heavy Colors - 02 - Black Candle.mp3", "title": "Heavy Colors 02 Black Candle", "duration": 166.799979 },
+    { "file": "Heavy Colors - 03 - John.mp3", "title": "Heavy Colors 03 John", "duration": 223.119979 },
+    { "file": "Heavy Colors - 04 - Fuck Totems.mp3", "title": "Heavy Colors 04 Fuck Totems", "duration": 154.799979 },
+    { "file": "Heavy Colors - 05 - Hexy Dumb Hex.mp3", "title": "Heavy Colors 05 Hexy Dumb Hex", "duration": 58.079979 },
+    { "file": "Heavy Colors - 06 - Intro to Detroit.mp3", "title": "Heavy Colors 06 Intro to Detroit", "duration": 175.719979 },
+    { "file": "Heavy Colors - 07 - Metal Hexifier..mp3", "title": "Heavy Colors 07 Metal Hexifier.", "duration": 208.679979 },
+    { "file": "Heavy Colors - 08 - Rodent Royalty.mp3", "title": "Heavy Colors 08 Rodent Royalty", "duration": 300.199979 },
+    { "file": "Heavy Colors - 09 - Chasing the Whip.mp3", "title": "Heavy Colors 09 Chasing the Whip", "duration": 144.919979 },
+    { "file": "Heavy Colors - 10 - Rise.mp3", "title": "Heavy Colors 10 Rise", "duration": 220.679979 },
+    { "file": "Heavy Colors - 11 - Horror Scene.mp3", "title": "Heavy Colors 11 Horror Scene", "duration": 184.919979 }
   ]
 }

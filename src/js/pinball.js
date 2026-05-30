@@ -53,16 +53,21 @@
   var LANE_PARK_X = 0.905, LANE_PARK_Y = 0.88;
   var DRAIN_Y = 0.965;           // ball below this (and live) drains
 
+  // Left kill chute: a narrow channel down the far left. Its inner wall starts at
+  // LCHUTE_TOP, leaving a mouth above it; a ball worked left of LCHUTE_X and below
+  // the mouth has entered the chute and is lost -- the left-side twin of the lethal
+  // right shooter lane.
+  var LCHUTE_X = 0.155;          // inner (playfield-side) wall of the chute
+  var LCHUTE_TOP = 0.32;         // chute mouth: open above this y
+
   var BALL_R = 0.030;            // x rect.w
   var BASE_GRAVITY = 1.70;       // x rect.h, px/s^2 (lighter ball / gentler table slant -- easier to loft to the holder)
   var LAUNCH_MIN = 1.9, LAUNCH_MAX = 2.6; // x rect.h, plunger launch speed
   var MAX_SPEED = 3.6;          // x rect.h, hard clamp (correctness guard)
   var CHARGE_TIME = 0.8;        // seconds of hold to full plunger charge
 
-  var FLIPPER_LEN = 0.175;      // x rect.w
   var FLIPPER_THICK = 0.024;    // x rect.w (collision capsule radius)
   var FLIPPER_SPEED = 24;       // rad/s toward target
-  var FLIPPER_SWING = 0.72;     // radians from rest to active
 
   var REST_WALL = 0.74;         // wall restitution
   var REST_BUMPER = 1.18;       // > 1: bumpers add energy
@@ -71,22 +76,39 @@
   var MIN_KICK = 1.35;          // x rect.h, floor kick while actively flipping
   var GUST_ACCEL = 1.7;         // x rect.h, lateral push during a fart gust
 
-  // Two flippers, mirrored. Angles in screen space (y down): rest points down
-  // toward the center drain; active swings the tip up and inward. Two constraints
-  // fix the pivot x (0.275 / 0.725):
-  //  - The rest tips (~0.435 / 0.565) leave a center gap of ~0.082 between their
-  //    collision capsules -- wider than the 0.060 ball -- so an UNDEFENDED ball
-  //    falls through and drains instead of wedging in the V (too narrow a gap was
-  //    the "ball can't fall between the flippers" soft-lock). The funnel ends meet
-  //    the tips at the same x, so the funnel feeds the ball onto the flipper top
-  //    and the gap between the two tips is the drain.
-  //  - The pivots still sit BELOW the funnel-wall line at their x (the wall passes
-  //    ~0.833 at px 0.275/0.725, pivots at 0.86): the flipper tucks under the
-  //    funnel with no under-flipper wedge (the "caught on the flipper" trap).
+  // Two ASYMMETRIC flippers -- deliberately different lengths AND swings so the
+  // table plays fun but CLUMSY: floppy, lopsided, imprecise. They are for BATTING
+  // the ball, NOT for walling off the drain. The pivots sit closer together than
+  // before so the resting tips leave only a tight center gap. Angles in screen
+  // space (y down): rest points down toward the center drain; active swings the
+  // tip generally up so a flick imparts an upward kick. Geometry (validated in
+  // tests/pinball.test.js by simulation):
+  //  - At REST the tips leave a center surface gap of ~0.066 -- tighter than
+  //    before (was ~0.098) but still wider than the 0.060 ball -- so an UNDEFENDED
+  //    ball falls through and drains (no free save).
+  //  - Engaging the flippers does NOT permanently wall the center. A HELD flipper
+  //    sweeps a full 180 (rest +/- pi); as both tips rotate up and over they open
+  //    the center wide. Across that sweep the minimum center surface gap dips below
+  //    the ball (down to ~0.030) -- so a clumsy held bat can momentarily block a
+  //    ball at the narrowest instant, but it is never a stable seal: a centered
+  //    ball still drains because the sweep opens the center as the flippers reach
+  //    180. (A lucky clumsy bat can happen; a guaranteed save cannot.)
+  //  - Each pivot sits BELOW the funnel-wall line at its x, so the flipper tucks
+  //    under the funnel with no under-flipper wedge. The V funnel ends are derived
+  //    from the rest tips (flipperRestTipN) so the funnel always meets the tip.
   var FLIPPERS = [
-    { side: "left",  px: 0.275, py: 0.86, rest: 0.42, active: 0.42 - FLIPPER_SWING },
-    { side: "right", px: 0.725, py: 0.86, rest: Math.PI - 0.42, active: Math.PI - 0.42 + FLIPPER_SWING }
+    { side: "left",  px: 0.260, py: 0.86, len: 0.200, rest: 0.530, active: -0.95 },
+    { side: "right", px: 0.680, py: 0.86, len: 0.155, rest: 2.850, active: 3.90 }
   ];
+
+  // Normalized rest-tip of a flipper definition (y scaled by aspect to match the
+  // width-scaled length). The V funnel walls terminate exactly here.
+  function flipperRestTipN(fd) {
+    return {
+      x: fd.px + Math.cos(fd.rest) * fd.len,
+      y: fd.py + Math.sin(fd.rest) * fd.len * TABLE_ASPECT
+    };
+  }
 
   // The plunger lane: park point and the straight-up launch direction.
   var PLUNGER = { x: LANE_PARK_X, y: LANE_PARK_Y, dir: -Math.PI / 2 };
@@ -100,15 +122,18 @@
   // the deflection angle is set by the roof slope, so even a soft launch exits
   // the lane rather than rattling back down it.
   function baseWalls() {
+    var lt = flipperRestTipN(FLIPPERS[0]);
+    var rt = flipperRestTipN(FLIPPERS[1]);
     return [
-      { x1: LEFT_X,  y1: TOP_Y,   x2: RIGHT_X, y2: TOP_Y,   bounce: REST_WALL }, // top (solid)
-      { x1: LEFT_X,  y1: TOP_Y,   x2: LEFT_X,  y2: 0.72,    bounce: REST_WALL }, // left wall
-      { x1: RIGHT_X, y1: TOP_Y,   x2: RIGHT_X, y2: BOTTOM_Y, bounce: REST_WALL }, // right outer wall
-      { x1: LANE_X,  y1: 0.34,    x2: LANE_X,  y2: BOTTOM_Y, bounce: REST_WALL }, // lane separator
-      { x1: RIGHT_X, y1: 0.26,    x2: 0.68,    y2: 0.11,    bounce: REST_WALL }, // lane-exit roof: redirects a launched ball left into play
-      { x1: 0.68,    y1: 0.11,    x2: 0.68,    y2: TOP_Y,   bounce: REST_WALL }, // roof end-cap: seals the dead pocket above the roof so a ball flipped back up can't wedge there
-      { x1: LEFT_X,  y1: 0.72,    x2: 0.435,   y2: 0.91,    bounce: REST_WALL }, // left V funnel (ends at the left flipper tip)
-      { x1: LANE_X,  y1: 0.72,    x2: 0.565,   y2: 0.91,    bounce: REST_WALL }  // right V funnel (ends at the right flipper tip)
+      { x1: LEFT_X,   y1: TOP_Y,      x2: RIGHT_X,  y2: TOP_Y,    bounce: REST_WALL }, // top (solid)
+      { x1: LEFT_X,   y1: TOP_Y,      x2: LEFT_X,   y2: BOTTOM_Y, bounce: REST_WALL }, // far-left / chute outer wall (full height)
+      { x1: LCHUTE_X, y1: LCHUTE_TOP, x2: LCHUTE_X, y2: BOTTOM_Y, bounce: REST_WALL }, // kill-chute inner wall (mouth open above LCHUTE_TOP)
+      { x1: RIGHT_X,  y1: TOP_Y,      x2: RIGHT_X,  y2: BOTTOM_Y, bounce: REST_WALL }, // right outer wall
+      { x1: LANE_X,   y1: 0.34,       x2: LANE_X,   y2: BOTTOM_Y, bounce: REST_WALL }, // lane separator
+      { x1: RIGHT_X,  y1: 0.26,       x2: 0.68,     y2: 0.11,     bounce: REST_WALL }, // lane-exit roof: redirects a launched ball left into play
+      { x1: 0.68,     y1: 0.11,       x2: 0.68,     y2: TOP_Y,    bounce: REST_WALL }, // roof end-cap: seals the dead pocket above the roof
+      { x1: LCHUTE_X, y1: 0.72,       x2: lt.x,     y2: lt.y,     bounce: REST_WALL }, // left V funnel (ends at the left flipper rest tip)
+      { x1: LANE_X,   y1: 0.72,       x2: rt.x,     y2: rt.y,     bounce: REST_WALL }  // right V funnel (ends at the right flipper rest tip)
     ];
   }
 
@@ -292,9 +317,15 @@
     for (var f = 0; f < FLIPPERS.length; f++) {
       var fd = FLIPPERS[f];
       var pv = px(rect, fd.px, fd.py);
+      // Held target is a FULL 180 flip from rest (rest +/- pi). A tap flicks the
+      // flipper up toward the `active` waypoint to bat the ball, then springs back;
+      // a hold sweeps the whole 180 arc. Neither permanently walls off the center:
+      // the held sweep may pinch narrow for an instant but rotates on to 180,
+      // reopening the center so a ball still drains (see FLIPPERS).
+      var full = fd.rest + (fd.active >= fd.rest ? 1 : -1) * Math.PI;
       flippers.push({
-        side: fd.side, x: pv.x, y: pv.y, len: FLIPPER_LEN * rect.w,
-        thick: FLIPPER_THICK * rect.w, rest: fd.rest, active: fd.active,
+        side: fd.side, x: pv.x, y: pv.y, len: fd.len * rect.w,
+        thick: FLIPPER_THICK * rect.w, rest: fd.rest, active: fd.active, full: full,
         angle: fd.rest, prevAngle: fd.rest, target: fd.rest, angVel: 0
       });
     }
@@ -368,7 +399,7 @@
   function setFlipper(run, side, down) {
     var fl = run.geom.flippers;
     for (var i = 0; i < fl.length; i++) {
-      if (fl[i].side === side) fl[i].target = down ? fl[i].active : fl[i].rest;
+      if (fl[i].side === side) fl[i].target = down ? fl[i].full : fl[i].rest;
     }
   }
 
@@ -520,19 +551,28 @@
     }
   }
 
-  // Capture: ball settled inside the cup interior, slow enough, gate open.
+  // Capture: ball settled anywhere inside the cup, slow enough, gate open. The
+  // catch zone now fills the cup's full width and reaches high under the lid -- a
+  // wig lofted into Hexy's cup is slowest at its apex near the top, exactly the
+  // band the old tight sweet-spot excluded, so it kept dropping back out uncaught.
+  // The speed gate, not a narrow target, is what keeps a fast fly-through from
+  // counting. The bottom stays just inside the open mouth so a ball already exiting
+  // isn't grabbed on the way down.
+  var CATCH_X = 1.0;      // fraction of cup half-width that still catches (full interior)
+  var CATCH_TOP = 0.95;   // fraction of half-height above center that still catches
+  var CATCH_BOT = 0.9;    // fraction of half-height below center (just inside the mouth)
   function checkCapture(run) {
     var b = run.ball, h = run.geom.holder, rs = run.ruleState;
     if (!rs.captureOpen) return false;
-    var insideX = Math.abs(b.x - h.cx) < h.hw * 0.85;
-    var insideY = b.y > h.cy - h.hh * 0.5 && b.y < h.cy + h.hh * 0.9;
+    var insideX = Math.abs(b.x - h.cx) < h.hw * CATCH_X;
+    var insideY = b.y > h.cy - h.hh * CATCH_TOP && b.y < h.cy + h.hh * CATCH_BOT;
     return insideX && insideY && speedOf(b) < h.captureSpeed;
   }
 
   function pointInHolder(run, x, y) {
     var h = run.geom.holder;
-    return Math.abs(x - h.cx) < h.hw * 0.85 &&
-      y > h.cy - h.hh * 0.5 && y < h.cy + h.hh * 0.9;
+    return Math.abs(x - h.cx) < h.hw * CATCH_X &&
+      y > h.cy - h.hh * CATCH_TOP && y < h.cy + h.hh * CATCH_BOT;
   }
 
   // ---------- Step ----------
@@ -591,13 +631,19 @@
 
     b.spin += b.vx * 0.0008;
 
-    // Drain only through the bottom (the V funnel guides it there).
+    // Bottom-center drain (the V funnel guides an undefended ball here).
     if (b.y > rect.y + rect.h * DRAIN_Y) { b.live = false; ev.drained = true; return ev; }
 
-    // A weak launch that fell back into the plunger lane: re-park for free
-    // (no ball lost) so the player just re-charges.
-    if (b.x > rect.x + LANE_X * rect.w && b.y > rect.y + rect.h * 0.80 && speedOf(b) < 0.06 * rect.h) {
-      serveBall(run);
+    // Left kill chute: worked left of the inner wall and below the mouth -> lost.
+    if (b.x < rect.x + LCHUTE_X * rect.w && b.y > rect.y + rect.h * LCHUTE_TOP) {
+      b.live = false; ev.drained = true; return ev;
+    }
+
+    // Right shooter lane is lethal too: a live ball knocked back down into the
+    // plunger/start area (below the park line, descending) is lost. The launch
+    // itself rises (vy < 0) up the same lane, so it is never caught here.
+    if (b.x > rect.x + LANE_X * rect.w && b.y > rect.y + rect.h * LANE_PARK_Y && b.vy > 0) {
+      b.live = false; ev.drained = true; return ev;
     }
     return ev;
   }

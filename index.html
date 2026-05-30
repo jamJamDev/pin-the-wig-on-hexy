@@ -70,8 +70,11 @@
         designation &ldquo;God&nbsp;Gamer,&rdquo; &ldquo;Good&nbsp;Gamer,&rdquo; or any cognate,
         derivative, or related title. This is a legally binding contract. Any breach &mdash; including,
         without limitation, referring to oneself as a God&nbsp;Gamer or Good&nbsp;Gamer &mdash; may
-        result in legal action up to and including suit for damages. Pressing START constitutes
-        acceptance of these terms.
+        result in legal action up to and including suit for damages. Reciprocally, and in
+        consideration of the mutual promises herein, Hexy agrees not to get mad at the creators of
+        the game (the &ldquo;Creators&rdquo;), it being stipulated and acknowledged that the Creators
+        are huge Hexy&nbsp;fans acting in good faith and are merely rage&nbsp;baiting. Pressing START
+        constitutes acceptance of these terms.
       </p>
     </div>
   </section>
@@ -133,6 +136,49 @@
     </div>
   </section>
 
+  <section id="screen-slots" class="overlay hidden">
+    <div class="panel slots-panel">
+      <p class="pin-eyebrow">Final Leg &middot; Hexy's One-Armed Bandit</p>
+      <h2 class="round-headline">Rig of Fortune</h2>
+      <p class="bj-sub">Turn <b>1000</b> credits into <b>2000</b> to clinch it. Hit <b>zero</b> and the run ends. Bet more lines or a bigger stake &mdash; the swing is yours to ride.</p>
+
+      <div class="slots-meters" aria-hidden="true">
+        <span class="slots-meter"><span class="slots-meter-cap">Credits</span><span id="slots-credits" class="slots-meter-num">1000</span></span>
+        <span class="slots-meter"><span class="slots-meter-cap">Lines</span><span id="slots-lines" class="slots-meter-num">30</span></span>
+        <span class="slots-meter"><span class="slots-meter-cap">Bet/Line</span><span id="slots-bet" class="slots-meter-num">1</span></span>
+        <span class="slots-meter"><span class="slots-meter-cap">Spin Cost</span><span id="slots-cost" class="slots-meter-num">30</span></span>
+      </div>
+
+      <div class="slots-stage" aria-hidden="true">
+        <div id="slots-grid" class="slots-grid"></div>
+        <svg id="slots-overlay" class="slots-overlay" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </div>
+
+      <div class="slots-progress" aria-hidden="true">
+        <div class="slots-progress-track"><div id="slots-progress-fill" class="slots-progress-fill"></div></div>
+        <span class="slots-progress-cap">1000 &rarr; 2000</span>
+      </div>
+
+      <p id="slots-result" class="slots-result">Turn 1000 into 2000. Or go home broke.</p>
+      <p id="slots-warn" class="slots-warn hidden" role="alert"></p>
+
+      <div class="slots-controls">
+        <div class="slots-adjust">
+          <span class="slots-adjust-cap">Lines</span>
+          <button id="btn-slots-lines-down" class="btn-secondary slots-step" type="button" aria-label="Fewer lines">&minus;</button>
+          <button id="btn-slots-lines-up" class="btn-secondary slots-step" type="button" aria-label="More lines">+</button>
+        </div>
+        <div class="slots-adjust">
+          <span class="slots-adjust-cap">Bet</span>
+          <button id="btn-slots-bet-down" class="btn-secondary slots-step" type="button" aria-label="Lower bet">&minus;</button>
+          <button id="btn-slots-bet-up" class="btn-secondary slots-step" type="button" aria-label="Higher bet">+</button>
+          <button id="btn-slots-max" class="btn-secondary slots-step slots-max" type="button">Max</button>
+        </div>
+      </div>
+      <button id="btn-slots-spin" class="btn-primary slots-spin" type="button">SPIN</button>
+    </div>
+  </section>
+
   <section id="screen-over" class="overlay hidden">
     <div class="panel">
       <h2 class="title small">Game Over</h2>
@@ -146,6 +192,7 @@
         <div><span class="final-num" id="final-best-round">0</span><span class="final-cap">Best Round</span></div>
         <div id="final-pin-cell" class="hidden"><span class="final-num" id="final-pin-bonus">+0</span><span class="final-cap">Pinball</span></div>
         <div id="final-bj-cell" class="hidden"><span class="final-num" id="final-bj-bonus">+0</span><span class="final-cap">Blackjack</span></div>
+        <div id="final-slot-cell" class="hidden"><span class="final-num" id="final-slot-bonus">+0</span><span class="final-cap">Slots</span></div>
       </div>
       <p id="final-wizard" class="final-wizard hidden">&#9889; PINBALL WIZARD</p>
       <p id="final-verdict" class="final-verdict"></p>
@@ -205,8 +252,8 @@
       <span class="music-vol-icon" aria-hidden="true">&#128266;</span>
       <input id="music-vol" class="music-vol-slider" type="range" min="0" max="1" step="0.01" value="0.5" aria-label="Music volume" title="Music volume" />
     </div>
-    <button id="music-download" class="music-download" type="button">&#11015;&#65039; Download the new album &lsquo;Drunk Boy Parade&rsquo; for free</button>
-    <button id="voice-download" class="music-download hidden" type="button">&#127908; Download all the voice lines</button>
+    <button id="music-download" class="music-download" type="button">&#11015;&#65039; Download the new album &lsquo;Hexy Always Reps That Gang Life&rsquo; for free</button>
+    <button id="voice-download" class="music-download hidden" type="button">&#127908; Download over 100 direct recordings from Hexy&rsquo;s streams</button>
     <p id="music-status" class="music-status" role="status" aria-live="polite"></p>
   </section>
 
@@ -220,6 +267,7 @@
 <script src="src/js/leaderboard.js" defer></script>
 <script src="src/js/pinball.js" defer></script>
 <script src="src/js/blackjack.js" defer></script>
+<script src="src/js/slots.js" defer></script>
 <script src="src/js/jszip.min.js" defer></script>
 <script src="src/js/game.js" defer></script>
 </body>

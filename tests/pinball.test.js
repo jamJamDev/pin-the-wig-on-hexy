@@ -309,3 +309,161 @@ test("the simulation never produces NaN across a long, input-heavy run", () => {
     if (ev.captured) { P.applyCapture(r); if (!P.nextTable(r)) { r.idx = 0; P.layout(r, VIEW); P.resetRuleState(r); P.serveBall(r); } }
   }
 });
+
+// Drive a flipper to its target angle by integrating real steps (no ball, so
+// only the flipper moves). Returns the flipper object so callers can inspect it.
+function holdFlipper(run, side, down, steps) {
+  P.setFlipper(run, side, down);
+  for (let i = 0; i < steps; i++) P.step(run, 0.016, {});
+  return run.geom.flippers.find((f) => f.side === side);
+}
+
+test("the two flippers are asymmetric in both length and swing magnitude", () => {
+  const run = runOnTable("warmup");
+  const left = run.geom.flippers.find((f) => f.side === "left");
+  const right = run.geom.flippers.find((f) => f.side === "right");
+  assert.ok(left && right, "both flippers present");
+  // Different normalized lengths (pixel lengths scale by the same rect.w, so a
+  // pixel-length difference proves a normalized-length difference).
+  assert.notEqual(left.len, right.len, "flippers must have different lengths");
+  // Different swing magnitudes |active - rest|.
+  const leftSwing = Math.abs(left.active - left.rest);
+  const rightSwing = Math.abs(right.active - right.rest);
+  assert.ok(Math.abs(leftSwing - rightSwing) > 1e-6, "flippers must swing different magnitudes");
+});
+
+test("an undefended ball above the center gap drains with flippers at rest", () => {
+  const run = runOnTable("warmup");
+  // Flippers explicitly parked at rest (the resting, undefended state).
+  for (const f of run.geom.flippers) { f.angle = f.target = f.prevAngle = f.rest; }
+  run.ball.live = true;
+  run.ball.x = run.rect.x + run.rect.w * 0.5;   // dead-center over the drain gap
+  run.ball.y = run.rect.y + run.rect.h * 0.78;  // just above the flipper line
+  run.ball.vx = 0; run.ball.vy = 0;
+  let drained = false;
+  for (let i = 0; i < 200 && !drained; i++) {
+    // Keep flippers pinned at rest every step (no defense).
+    for (const f of run.geom.flippers) { f.angle = f.target = f.rest; }
+    if (P.step(run, 0.016, {}).drained) drained = true;
+  }
+  assert.equal(drained, true, "rest flippers leave a gap wide enough to drain");
+});
+
+test("both flippers held engaged do NOT seal the center -- a ball still drains", () => {
+  // Design intent (per user direction): the flippers are clumsy, not a wall.
+  // Engaging BOTH flippers must NOT guarantee a save -- a centered ball above the
+  // gap can always squeeze through and drain even while both are held. There is no
+  // reliable seal; the center is never impenetrable.
+  const run = runOnTable("warmup");
+  // Hold BOTH flippers down and integrate so they are in the engaged sweep (and
+  // ultimately reach the full 180), driving the tips through the narrowest point.
+  P.setFlipper(run, "left", true);
+  P.setFlipper(run, "right", true);
+  // Let the flippers begin their sweep so they are actively engaged, not at rest.
+  for (let i = 0; i < 3; i++) P.step(run, 0.016, {});
+  run.ball.live = true;
+  run.ball.x = run.rect.x + run.rect.w * 0.5;   // dead-center over the gap
+  run.ball.y = run.rect.y + run.rect.h * 0.74;  // just above the engaged tips
+  run.ball.vx = 0; run.ball.vy = 0;
+  let drained = false;
+  for (let i = 0; i < 400 && !drained; i++) {
+    // Keep both flippers commanded down the whole time (held engaged).
+    P.setFlipper(run, "left", true);
+    P.setFlipper(run, "right", true);
+    if (P.step(run, 0.016, {}).drained) drained = true;
+  }
+  assert.equal(drained, true, "held flippers must not seal the center -- the ball falls through");
+});
+
+test("holding a flipper sweeps it a full 180 past the active waypoint", () => {
+  // Left side.
+  let run = runOnTable("warmup");
+  let f = holdFlipper(run, "left", true, 40);   // 40*0.016 = 0.64s; pi/24 = 0.131s
+  assert.ok(Math.abs(f.angle - f.rest) > Math.abs(f.active - f.rest) + 0.5,
+    "held left flipper must sweep well past the active waypoint");
+  assert.ok(Math.abs(Math.abs(f.angle - f.rest) - Math.PI) < 1e-3,
+    "held left flipper must reach a full 180 (pi) from rest");
+
+  // Right side.
+  run = runOnTable("warmup");
+  f = holdFlipper(run, "right", true, 40);
+  assert.ok(Math.abs(f.angle - f.rest) > Math.abs(f.active - f.rest) + 0.5,
+    "held right flipper must sweep well past the active waypoint");
+  assert.ok(Math.abs(Math.abs(f.angle - f.rest) - Math.PI) < 1e-3,
+    "held right flipper must reach a full 180 (pi) from rest");
+});
+
+test("releasing a tapped flipper springs it back to rest", () => {
+  const run = runOnTable("warmup");
+  const f = run.geom.flippers.find((x) => x.side === "left");
+  // Tap: hold for a few steps (a partial sweep), then release.
+  P.setFlipper(run, "left", true);
+  for (let i = 0; i < 4; i++) P.step(run, 0.016, {});
+  const partial = Math.abs(f.angle - f.rest);
+  assert.ok(partial > 0.01, "the tap must actually move the flipper off rest");
+  assert.ok(partial < Math.PI - 0.1, "a short tap is only a partial sweep, not a full flip");
+  // Release and let it spring back.
+  P.setFlipper(run, "left", false);
+  for (let i = 0; i < 40; i++) P.step(run, 0.016, {});
+  assert.ok(Math.abs(f.angle - f.rest) < 1e-6, "released flipper returns to rest");
+});
+
+test("a ball worked into the left kill chute drains", () => {
+  const run = runOnTable("warmup");
+  run.ball.live = true;
+  // Left of the inner chute wall and below the chute mouth.
+  run.ball.x = run.rect.x + run.rect.w * 0.10;   // < LCHUTE_X (0.155)
+  run.ball.y = run.rect.y + run.rect.h * 0.50;   // > LCHUTE_TOP (0.32)
+  run.ball.vx = 0; run.ball.vy = run.rect.h * 0.2;
+  const ev = P.step(run, 0.016, {});
+  assert.equal(ev.drained, true, "the left kill chute must claim the ball");
+  assert.equal(run.ball.live, false);
+});
+
+test("the right shooter lane is lethal to a descending live ball but spares a launch", () => {
+  // A live ball descending in the right lane below the park line drains.
+  const lethal = runOnTable("warmup");
+  lethal.ball.live = true;
+  lethal.ball.x = lethal.rect.x + lethal.rect.w * 0.90;  // > LANE_X (0.85)
+  lethal.ball.y = lethal.rect.y + lethal.rect.h * 0.91;  // > LANE_PARK_Y (0.88)
+  lethal.ball.vx = 0; lethal.ball.vy = lethal.rect.h * 0.2;  // descending
+  const lethalEv = P.step(lethal, 0.016, {});
+  assert.equal(lethalEv.drained, true, "a ball falling back down the lane is lost");
+  assert.equal(lethal.ball.live, false);
+
+  // A rising launch (vy < 0) in the same lane is NOT falsely drained.
+  const launch = runOnTable("warmup");
+  launch.ball.live = true;
+  launch.ball.x = launch.rect.x + launch.rect.w * 0.90;  // in the lane
+  launch.ball.y = launch.rect.y + launch.rect.h * 0.91;  // below the park line
+  launch.ball.vx = 0; launch.ball.vy = -launch.rect.h * 1.0;  // rising up the lane
+  const launchEv = P.step(launch, 0.016, {});
+  assert.equal(launchEv.drained, false, "a rising launch must not be treated as a drain");
+  assert.equal(launch.ball.live, true, "the launched ball stays live");
+});
+
+test("a mid-table ball is not falsely claimed in a single step", () => {
+  const run = runOnTable("warmup");
+  run.ball.live = true;
+  run.ball.x = run.rect.x + run.rect.w * 0.5;   // mid playfield
+  run.ball.y = run.rect.y + run.rect.h * 0.55;
+  run.ball.vx = 0; run.ball.vy = 0;
+  const ev = P.step(run, 0.016, {});
+  assert.equal(ev.drained, false, "a mid-table ball must not drain");
+  assert.equal(ev.captured, false, "a mid-table ball is nowhere near the holder");
+  assert.equal(run.ball.live, true, "the ball stays in play");
+});
+
+test("a wall collision sets ev.bounced", () => {
+  const run = runOnTable("warmup");
+  run.ball.live = true;
+  // Drive the ball hard into the solid top wall (TOP_Y = 0.04).
+  run.ball.x = run.rect.x + run.rect.w * 0.5;
+  run.ball.y = run.rect.y + run.rect.h * 0.06;
+  run.ball.vx = 0; run.ball.vy = -run.rect.h * 1.0;  // moving up into the top
+  let sawBounce = false;
+  for (let i = 0; i < 5 && !sawBounce; i++) {
+    if (P.step(run, 0.016, {}).bounced) sawBounce = true;
+  }
+  assert.equal(sawBounce, true, "hitting a wall must report ev.bounced");
+});
