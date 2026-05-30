@@ -197,6 +197,55 @@ html, body {
   100% { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5); }
 }
 
+/* The real game title -- chunky, tilted, vivid sticker letters that pop off the
+   dark panel. Decorative per-letter spans; the accessible name lives on the
+   wrapper's aria-label. */
+.game-title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.06em 0.34em;
+  margin: 0 0 14px;
+  font-family: "Arial Black", "Trebuchet MS", system-ui, sans-serif;
+  font-weight: 900;
+  font-size: clamp(30px, 8.4vw, 58px);
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  user-select: none;
+  cursor: default;
+}
+.gt-word { display: inline-flex; gap: 0.01em; }
+.gt-letter {
+  display: inline-block;
+  -webkit-text-stroke: 2px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 0 18px currentColor, 3px 4px 0 rgba(0, 0, 0, 0.55);
+  animation: gt-bob-l 2.6s ease-in-out infinite;
+  will-change: transform;
+}
+.gt-letter:nth-child(even) { animation-name: gt-bob-r; }
+.gt-letter:nth-child(1) { animation-delay: 0s; }
+.gt-letter:nth-child(2) { animation-delay: 0.12s; }
+.gt-letter:nth-child(3) { animation-delay: 0.24s; }
+.gt-letter:nth-child(4) { animation-delay: 0.36s; }
+/* Vivid rainbow fills; the glow (currentColor) and dark stroke do the "popping". */
+.gt-c1 { color: #ff3b6b; }
+.gt-c2 { color: #ff8a00; }
+.gt-c3 { color: #ffd400; }
+.gt-c4 { color: #4dff5e; }
+.gt-c5 { color: #00e0ff; }
+.gt-c6 { color: #7b5cff; }
+.gt-c7 { color: #ff4df0; }
+@keyframes gt-bob-l {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50%      { transform: translateY(-6px) rotate(-6deg); }
+}
+@keyframes gt-bob-r {
+  0%, 100% { transform: translateY(0) rotate(6deg); }
+  50%      { transform: translateY(-6px) rotate(6deg); }
+}
+
 .title {
   font-size: clamp(36px, 8vw, 60px);
   line-height: 0.95;
@@ -260,6 +309,7 @@ html, body {
 
 .final-grid {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: clamp(16px, 6vw, 44px);
   margin: 26px 0 16px;
@@ -275,6 +325,655 @@ html, body {
 .final-verdict { opacity: 0.86; margin-bottom: 8px; font-size: 16px; }
 .final-record { color: var(--warn); font-weight: 800; margin-bottom: 20px; }
 
+/* ---------- Final-screen rank ---------- */
+.final-rank-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 18px 0 4px;
+}
+.final-rank-label {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+.final-rank {
+  font-size: clamp(30px, 8vw, 50px);
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--ink);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
+}
+/* GOD GAMER -- the one earned rank, lit up gold so it reads as the prize. */
+.final-rank.is-god {
+  background: linear-gradient(92deg, #ffd34d, #fff3b0 40%, #ffba17 70%, #ffd34d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+  filter: drop-shadow(0 0 14px rgba(255, 196, 23, 0.55));
+  animation: god-glow 1.8s ease-in-out infinite;
+}
+@keyframes god-glow {
+  0%, 100% { filter: drop-shadow(0 0 10px rgba(255, 196, 23, 0.45)); }
+  50%      { filter: drop-shadow(0 0 22px rgba(255, 196, 23, 0.8)); }
+}
+
+/* The forfeiture-contract payoff: loud, stamped, impossible to miss. */
+.final-notgod {
+  margin: 6px auto 18px;
+  max-width: 92%;
+  padding: 12px 14px;
+  border: 3px solid var(--accent);
+  border-radius: 12px;
+  background: rgba(254, 0, 0, 0.12);
+  color: var(--ink);
+  font-size: clamp(16px, 4.4vw, 22px);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  transform: rotate(-2deg);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+.final-notgod-no {
+  color: var(--accent);
+  font-size: 1.22em;
+  letter-spacing: 0.06em;
+}
+
+/* ---------- Pinball bonus phase ---------- */
+.pin-eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.pin-goal {
+  margin: 14px auto 6px;
+  max-width: 380px;
+  font-size: 15px;
+  opacity: 0.9;
+}
+.pin-controls {
+  margin: 0 auto 22px;
+  max-width: 380px;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.72;
+}
+
+/* Transient capture/status banner over the table -- no overlay backdrop, so the
+   table stays visible behind it. */
+.pin-banner {
+  position: absolute;
+  left: 50%;
+  top: 15%;
+  transform: translateX(-50%);
+  z-index: 9;            /* above HUD (5), below the screen overlays (10) */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  text-align: center;
+}
+.pin-banner-text {
+  font-size: clamp(28px, 7vw, 48px);
+  font-weight: 900;
+  color: var(--ink);
+  -webkit-text-stroke: 2px rgba(0, 0, 0, 0.6);
+  text-shadow: 0 0 30px rgba(65, 224, 163, 0.55), 0 6px 24px rgba(0, 0, 0, 0.6);
+}
+.pin-banner-pips {
+  font-size: clamp(18px, 4vw, 26px);
+  letter-spacing: 0.18em;
+  color: var(--good);
+}
+.pin-banner.show { animation: pin-pop 0.42s cubic-bezier(0.18, 1.2, 0.4, 1); }
+@keyframes pin-pop {
+  0%   { transform: translateX(-50%) scale(1.5); opacity: 0; }
+  35%  { transform: translateX(-50%) scale(1); opacity: 1; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+/* Cleared all five tables -- a cosmetic flex on the game-over screen. */
+.final-wizard {
+  margin: 0 auto 14px;
+  font-size: clamp(15px, 4vw, 20px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warn);
+  text-shadow: 0 0 16px rgba(255, 194, 75, 0.5);
+}
+
+/* GOD GAMER reward link -- only rendered when the title is earned (endGame gates
+   it on isGod). Gold to echo the rank, with the same pulse so it reads as THE prize. */
+.final-prize {
+  display: inline-block;
+  margin: 2px auto 20px;
+  padding: 14px 32px;
+  border-radius: 999px;
+  font-size: clamp(15px, 4vw, 20px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: #2a1c00;
+  background: linear-gradient(92deg, #ffd34d, #fff3b0 45%, #ffba17 75%, #ffd34d);
+  box-shadow: 0 6px 22px rgba(255, 196, 23, 0.45);
+  animation: god-glow 1.8s ease-in-out infinite;
+  transition: transform 0.12s ease, filter 0.2s;
+}
+.final-prize:hover { transform: translateY(-2px); filter: brightness(1.06); }
+.final-prize:active { transform: translateY(1px) scale(0.98); }
+
+/* ---------- Blackjack finale (God Gamer final boss) ---------- */
+.bj-panel { width: min(560px, 94vw); }
+.bj-sub {
+  margin: 10px auto 14px;
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.82;
+}
+.bj-score {
+  display: flex;
+  justify-content: center;
+  gap: clamp(16px, 6vw, 40px);
+  margin-bottom: 14px;
+}
+.bj-tally {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.bj-pips { font-size: 17px; letter-spacing: 0.12em; margin-left: 6px; vertical-align: -1px; }
+.bj-tally-win .bj-pips { color: var(--good); }
+.bj-tally-loss .bj-pips { color: var(--accent); }
+
+/* The felt: a card table seating Hexy (dealer) above the player. */
+.bj-felt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 14px;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 36%, rgba(65, 224, 163, 0.12), transparent 70%),
+    rgba(0, 0, 0, 0.34);
+  border: 1px solid rgba(65, 224, 163, 0.22);
+}
+.bj-seat { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.bj-seat-label {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 800;
+  opacity: 0.82;
+}
+.bj-seat-sub { opacity: 0.55; font-weight: 700; }
+.bj-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(8px, 2vw, 10px);
+  min-height: clamp(96px, 24vw, 132px);
+}
+.bj-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  /* Sized off the viewport so a full hand still wraps cleanly inside the
+     560px felt on desktop and a ~340px panel on mobile. flex:0 0 auto keeps
+     each card at its exact width so it wraps (never squishes) when the row
+     fills. 5/7 is the real playing-card ratio; rank/suit scale via em. */
+  flex: 0 0 auto;
+  width: clamp(66px, 17vw, 94px);
+  aspect-ratio: 5 / 7;
+  border-radius: 11px;
+  background: #f7f4ee;
+  color: #111;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  font-size: clamp(13px, 3.3vw, 17px);
+  font-weight: 900;
+  line-height: 1;
+  user-select: none;
+  animation: bj-deal 0.26s cubic-bezier(0.18, 1.2, 0.4, 1);
+}
+.bj-card.red { color: var(--accent); }
+.bj-rank { font-size: 2em; }
+.bj-suit { font-size: 1.85em; }
+/* Face-down hole card: a patterned back in the brand red. */
+.bj-card.bj-hole {
+  background:
+    repeating-linear-gradient(45deg, rgba(254, 0, 0, 0.85) 0 8px, rgba(120, 0, 0, 0.9) 8px 16px);
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45), inset 0 0 0 2px rgba(255, 255, 255, 0.18);
+  font-size: 2.4em;
+}
+@keyframes bj-deal {
+  from { transform: translateY(-14px) rotate(-6deg); opacity: 0; }
+  to   { transform: translateY(0) rotate(0); opacity: 1; }
+}
+.bj-total {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  min-height: 17px;
+  opacity: 0.9;
+}
+
+.bj-result {
+  min-height: 24px;
+  margin: 14px 0 6px;
+  font-size: clamp(16px, 4.4vw, 21px);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+.bj-result.is-win,
+.bj-result.is-lose,
+.bj-result.is-push { animation: bj-result-pop 0.4s cubic-bezier(0.18, 1.2, 0.4, 1); }
+.bj-result.is-win  { color: var(--good); }
+.bj-result.is-lose { color: var(--accent); }
+.bj-result.is-push { color: var(--warn); }
+@keyframes bj-result-pop {
+  0%   { transform: scale(1.35); opacity: 0; }
+  40%  { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.bj-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.bj-btn { font-size: 17px; padding: 13px 30px; }
+/* Stand reads as the cautious option -- ghosted next to the bold red Hit. */
+.bj-btn-ghost {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .panel, .panel-flash, #start-logo { animation: none; }
+  .bj-card,
+  .bj-result.is-win, .bj-result.is-lose, .bj-result.is-push { animation: none; }
+}
+
+/* ---------- Round-start countdown ---------- */
+.countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 8;            /* above HUD (5), below the screen overlays (10) */
+  pointer-events: none;
+}
+.countdown-num {
+  font-size: clamp(96px, 30vw, 280px);
+  font-weight: 900;
+  line-height: 1;
+  color: var(--ink);
+  text-shadow: 0 0 40px rgba(254, 0, 0, 0.6), 0 8px 30px rgba(0, 0, 0, 0.6);
+  -webkit-text-stroke: 3px var(--accent);
+}
+.countdown-num.go {
+  color: var(--good);
+  -webkit-text-stroke: 3px var(--good);
+  text-shadow: 0 0 44px rgba(65, 224, 163, 0.7), 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+.countdown-num.tick { animation: count-pop 0.5s cubic-bezier(0.18, 1.2, 0.4, 1); }
+@keyframes count-pop {
+  0%   { transform: scale(1.7); opacity: 0; }
+  35%  { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.92; }
+}
+
+/* ---------- Start-menu "God Gamer" forfeiture clause (for fun) ---------- */
+.contract {
+  margin: 18px auto 0;
+  max-width: 420px;
+  padding-top: 12px;
+  border-top: 1px solid var(--panel-edge);
+  font-size: 10px;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  text-align: justify;
+  color: var(--ink);
+  opacity: 0.5;
+}
+.contract strong { letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.85; }
+
+/* Always-visible achievements button (bottom-right, mirrors the music widget). */
+.corner-btn {
+  position: fixed;
+  right: clamp(10px, 2.5vw, 22px);
+  bottom: clamp(10px, 2.5vw, 22px);
+  z-index: 11;
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+}
+.corner-btn.has-unlocks {
+  box-shadow: 0 0 0 2px var(--accent), 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- Music player ---------- */
+.music {
+  position: fixed;
+  left: clamp(10px, 2.5vw, 22px);
+  bottom: clamp(10px, 2.5vw, 22px);
+  z-index: 11;
+  width: min(260px, 78vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 2px solid var(--panel-edge);
+  border-radius: 16px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+.music-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.music-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.9;
+}
+.music-title {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.music-seek {
+  position: relative;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  touch-action: none;     /* drag-to-scrub without the page panning on touch */
+}
+/* Invisible taller hit-area so the thin bar is easy to grab (esp. on touch). */
+.music-seek::before {
+  content: "";
+  position: absolute;
+  inset: -8px 0;
+}
+.music-seek:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.music-progress {
+  height: 100%;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--warn));
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.18s linear;
+}
+.music-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.music-controls { display: flex; align-items: center; gap: 6px; }
+.music-controls .icon-btn {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.music-controls .icon-btn:hover { background: rgba(255, 255, 255, 0.2); }
+.music-cta { margin-left: auto; }
+/* Unmute call-to-action: glows/pulses while the radio is still silent. */
+.icon-btn.cta-pulse {
+  opacity: 1;
+  background: rgba(254, 0, 0, 0.5);
+  color: var(--ink);
+  animation: music-pulse 1.6s ease-in-out infinite;
+}
+@keyframes music-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(254, 0, 0, 0.5); }
+  50%      { box-shadow: 0 0 0 7px rgba(254, 0, 0, 0); }
+}
+.music-volume { display: flex; align-items: center; gap: 8px; }
+.music-vol-icon { font-size: 13px; opacity: 0.65; }
+.music-vol-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+.music-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+}
+.music-vol-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+}
+.music-vol-slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.music-download {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 0.2s, transform 0.1s, filter 0.2s;
+}
+.music-download:hover { background: rgba(255, 255, 255, 0.18); }
+.music-download:active { transform: scale(0.97); }
+.music-download:disabled { opacity: 0.6; cursor: progress; }
+.music-status { font-size: 10px; opacity: 0.7; min-height: 12px; margin: 0; }
+.music-status.error { color: var(--accent); opacity: 1; font-weight: 700; }
+
+/* ---------- Achievements panel ---------- */
+.ach-panel { width: min(460px, 92vw); }
+.ach-progress { opacity: 0.7; font-size: 13px; margin-bottom: 14px; }
+.ach-list {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  margin: 0 0 22px;
+  text-align: left;
+}
+.ach-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.5;
+}
+.ach-item.unlocked {
+  opacity: 1;
+  border-color: var(--panel-edge);
+  background: rgba(254, 0, 0, 0.1);
+}
+.ach-badge { font-size: 22px; flex: 0 0 auto; filter: grayscale(1); }
+.ach-item.unlocked .ach-badge { filter: none; }
+.ach-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ach-name { font-weight: 800; font-size: 14px; }
+.ach-desc { font-size: 12px; opacity: 0.8; }
+
+/* ---------- Achievement unlock toasts ---------- */
+.toast-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: clamp(16px, 5vh, 40px);
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border: 2px solid var(--panel-edge);
+  border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  animation: toast-in 0.35s cubic-bezier(0.18, 1.2, 0.4, 1);
+}
+.toast.out { animation: toast-out 0.4s ease forwards; }
+.toast-badge { font-size: 22px; }
+.toast-text { display: flex; flex-direction: column; }
+.toast-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.toast-name { font-weight: 800; font-size: 14px; }
+@keyframes toast-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+@keyframes toast-out {
+  to { transform: translateY(-10px); opacity: 0; }
+}
+
+/* ---------- Online leaderboard ---------- */
+/* Outline pill for secondary actions (open the board from start / game-over). */
+.btn-secondary {
+  border: 2px solid var(--panel-edge);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  padding: 10px 28px;
+  border-radius: 999px;
+  background: transparent;
+  transition: transform 0.12s ease, background 0.2s, filter 0.2s;
+}
+.btn-secondary:hover { background: rgba(254, 0, 0, 0.12); transform: translateY(-2px); }
+.btn-secondary:active { transform: translateY(1px) scale(0.98); }
+.lb-open-btn { margin-top: 12px; }
+
+.lb-panel { width: min(440px, 92vw); }
+.lb-sub { opacity: 0.7; font-size: 13px; margin-bottom: 14px; }
+.lb-list {
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  margin: 0 0 22px;
+  max-height: 50vh;
+  overflow-y: auto;
+  text-align: left;
+}
+.lb-row {
+  display: grid;
+  grid-template-columns: 2.8em 3.4em 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+/* The viewer's own row, lit so they can find themselves at a glance. */
+.lb-row.is-me {
+  background: rgba(254, 0, 0, 0.16);
+  border-color: var(--panel-edge);
+}
+.lb-rank { font-weight: 800; opacity: 0.6; font-size: 13px; }
+.lb-initials-cell { font-weight: 900; letter-spacing: 0.08em; font-size: 16px; }
+.lb-score { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.lb-badge { justify-self: start; font-size: 0; }   /* non-god rows collapse the column */
+.lb-badge.is-god {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #2a1c00;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: linear-gradient(92deg, #ffd34d, #ffba17);
+  box-shadow: 0 0 10px rgba(255, 196, 23, 0.5);
+}
+.lb-msg { opacity: 0.7; padding: 14px 4px; text-align: center; }
+.lb-msg.lb-error { color: var(--accent); opacity: 1; }
+
+/* Game-over initials entry (shown only when the run earns a spot). */
+.lb-entry {
+  margin: 4px auto 18px;
+  max-width: 360px;
+  padding: 14px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 14px;
+  background: rgba(254, 0, 0, 0.06);
+}
+.lb-entry-prompt { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+.lb-entry-form { display: flex; gap: 10px; justify-content: center; align-items: center; }
+.lb-initials {
+  width: 4.2em;
+  font-family: inherit;
+  font-size: 26px;
+  font-weight: 900;
+  text-align: center;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--panel-edge);
+  border-radius: 12px;
+  padding: 8px 6px;
+}
+.lb-initials:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lb-submit { font-size: 15px; padding: 12px 26px; }
+.lb-status { font-size: 12px; opacity: 0.8; min-height: 14px; margin: 10px 0 0; }
+.lb-status.error { color: var(--accent); opacity: 1; font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel, .panel-flash, #start-logo,
+  .icon-btn.cta-pulse, .toast, .toast.out,
+  .countdown-num.tick, .final-rank.is-god, .final-prize,
+  .pin-banner.show { animation: none; }
+  /* Drop the bob but keep the playful tilt (it otherwise lives in the keyframes). */
+  .gt-letter { animation: none; transform: rotate(-6deg); }
+  .gt-letter:nth-child(even) { transform: rotate(6deg); }
 }

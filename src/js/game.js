@@ -2,21 +2,68 @@
 
 (() => {
   const TOTAL_ROUNDS = 10;
+  // Base score (75% of a perfect 10-round run) that unlocks the pinball finale.
+  const PINBALL_UNLOCK = TOTAL_ROUNDS * 1000 * 0.75;
+  // TEMP dev shortcuts for tuning the finale: with "?pinball" in the URL every
+  // game start (and "Play Again") drops straight into the pinball bonus; with
+  // "?blackjack" it drops straight into the blackjack showdown (as if pinball was
+  // already cleared). Remove these lines and their uses (startGame + boot) when
+  // refinement is done.
+  const DEV_PINBALL = /[?&#]pinball\b/.test(location.search + location.hash);
+  const DEV_BLACKJACK = /[?&#]blackjack\b/.test(location.search + location.hash);
   const BEST_KEY = "ptwoh.best";
   const MUTE_KEY = "ptwoh.muted";
+  const LISTENED_KEY = "ptwoh.music.listenedFiles";
+  const HEARD_KEY = "ptwoh.voice.heardFiles";
+  const ACH_KEY = "ptwoh.achievements";
+  const MUSIC_VOL_KEY = "ptwoh.music.vol";
+  const INITIALS_KEY = "ptwoh.initials";   // remembered 3-letter tag
+  const CLIENT_KEY = "ptwoh.clientId";     // anonymous per-browser id -> one leaderboard row
+  const LB_API = "api/leaderboard";        // same-origin; served by scripts/dev_server.py
+  const DEFAULT_MUSIC_VOL = 0.5;   // radio starts at half volume
+  const RADIO_ANCHOR_MS = 0;   // Unix epoch -- shared anchor so every visitor is in sync
+  const PREV_RESTART_SEC = 2;  // "prev" restarts the current track if this far in
+  const COUNTDOWN_SECONDS = 3; // 3-2-1 at each round start; a voice line plays over it
 
   const MOD = window.PTWOHModifiers;
   if (!MOD || typeof MOD.buildPlan !== "function" || typeof MOD.stepHexy !== "function") {
     throw new Error("Pin the Wig on Hexy: src/js/modifiers.js failed to load");
   }
 
+  // Core gameplay module: the game-over screen depends on it, so fail loud if
+  // it is missing (same posture as MOD; unlike the optional radio/achievements).
+  const RANKS = window.PTWOHRanks;
+  if (!RANKS || typeof RANKS.rankFor !== "function") {
+    throw new Error("Pin the Wig on Hexy: src/js/ranks.js failed to load");
+  }
+
+  // Post-round-10 pinball bonus phase. Core to the end-of-run flow, so fail loud
+  // if missing (same posture as MOD/RANKS).
+  const PINBALL = window.PTWOHPinball;
+  if (!PINBALL || typeof PINBALL.createRun !== "function") {
+    throw new Error("Pin the Wig on Hexy: src/js/pinball.js failed to load");
+  }
+
+  // The God Gamer final boss: blackjack after the pinball finale. The win gate
+  // depends on it, so fail loud if missing (same posture as MOD/RANKS/PINBALL).
+  const BLACKJACK = window.PTWOHBlackjack;
+  if (!BLACKJACK || typeof BLACKJACK.createGame !== "function") {
+    throw new Error("Pin the Wig on Hexy: src/js/blackjack.js failed to load");
+  }
+
+  // Non-essential extras -- guarded softly so a missing module never breaks the game.
+  const RADIO = window.PTWOHRadio || null;
+  const ACH = window.PTWOHAchievements || null;
+  const LBOARD = window.PTWOHLeaderboard || null;
+
   // Anchor geometry, expressed as fractions of each sprite's own box.
   // Tuned for assets/bald_no_bg.png (448x544) + assets/wig.png (497x450).
-  // The seat point is deliberately HIGH on his crown -- a perfect pin leaves
-  // Hexy's forehead visible (it's a chat in-joke). WIG_ANCHOR.x matches the
-  // wig's parting line so a bullseye centers the part on the head.
-  // If you swap the art and the wig sits off, nudge these two.
-  const HEAD_ANCHOR = { x: 0.48, y: 0.11 }; // crown perch -- high, so the forehead joke stays visible
+  // HEAD_ANCHOR is the seat point on Hexy's head -- centered on his forehead
+  // (the bald art fills its frame, so these are head-relative directly). The
+  // reticle and a pinned wig both land here, so the wig drapes naturally over
+  // his scalp. WIG_ANCHOR matches the wig's parting line so a bullseye centers
+  // the part on the head. If you swap the art and it sits off, nudge these two.
+  const HEAD_ANCHOR = { x: 0.52, y: 0.21 }; // seat slightly up-and-right of forehead center, where a pinned wig looks natural
   const WIG_ANCHOR  = { x: 0.48, y: 0.46 }; // wig's parting line, so a bullseye centers the part on his head
 
   const SCORE_TIERS = [
@@ -34,6 +81,7 @@
   const el = {
     hud: document.getElementById("hud"),
     round: document.getElementById("hud-round"),
+    roundLabel: document.getElementById("hud-round-label"),
     score: document.getElementById("hud-score"),
     best: document.getElementById("hud-best"),
     timerFill: document.getElementById("hud-timer-fill"),
@@ -48,11 +96,77 @@
     roundHeadline: document.getElementById("round-headline"),
     roundDetail: document.getElementById("round-detail"),
     roundPoints: document.getElementById("round-points"),
+    countdown: document.getElementById("countdown"),
+    countNum: document.getElementById("countdown-num"),
+    finalRank: document.getElementById("final-rank"),
     finalScore: document.getElementById("final-score"),
     finalAcc: document.getElementById("final-acc"),
     finalBestRound: document.getElementById("final-best-round"),
     finalVerdict: document.getElementById("final-verdict"),
+    finalNotGod: document.getElementById("final-notgod"),
     finalRecord: document.getElementById("final-record"),
+    finalPinBonus: document.getElementById("final-pin-bonus"),
+    finalPinCell: document.getElementById("final-pin-cell"),
+    finalBjBonus: document.getElementById("final-bj-bonus"),
+    finalBjCell: document.getElementById("final-bj-cell"),
+    finalWizard: document.getElementById("final-wizard"),
+    finalPrize: document.getElementById("final-prize"),
+    // Pinball bonus phase
+    screenPinIntro: document.getElementById("screen-pin-intro"),
+    pinTableN: document.getElementById("pin-table-n"),
+    pinTableName: document.getElementById("pin-table-name"),
+    pinTableHint: document.getElementById("pin-table-hint"),
+    btnPinStart: document.getElementById("btn-pin-start"),
+    pinBanner: document.getElementById("pin-banner"),
+    pinBannerText: document.getElementById("pin-banner-text"),
+    pinBannerPips: document.getElementById("pin-banner-pips"),
+    // Blackjack finale
+    screenBlackjack: document.getElementById("screen-blackjack"),
+    bjPipsWin: document.getElementById("bj-pips-win"),
+    bjPipsLoss: document.getElementById("bj-pips-loss"),
+    bjDealerCards: document.getElementById("bj-dealer-cards"),
+    bjDealerTotal: document.getElementById("bj-dealer-total"),
+    bjPlayerCards: document.getElementById("bj-player-cards"),
+    bjPlayerTotal: document.getElementById("bj-player-total"),
+    bjResult: document.getElementById("bj-result"),
+    btnBjHit: document.getElementById("btn-bj-hit"),
+    btnBjStand: document.getElementById("btn-bj-stand"),
+    btnBjNext: document.getElementById("btn-bj-next"),
+    // Music player
+    music: document.getElementById("music"),
+    musicTitle: document.getElementById("music-title"),
+    musicSeek: document.getElementById("music-seek"),
+    musicProgress: document.getElementById("music-progress"),
+    musicCur: document.getElementById("music-cur"),
+    musicDur: document.getElementById("music-dur"),
+    musicPrev: document.getElementById("music-prev"),
+    musicPlayPause: document.getElementById("music-playpause"),
+    musicNext: document.getElementById("music-next"),
+    musicMute: document.getElementById("music-mute"),
+    musicMuteGlyph: document.getElementById("music-mute-glyph"),
+    musicVol: document.getElementById("music-vol"),
+    musicDownload: document.getElementById("music-download"),
+    voiceDownload: document.getElementById("voice-download"),
+    musicStatus: document.getElementById("music-status"),
+    // Achievements
+    btnAch: document.getElementById("btn-achievements"),
+    screenAch: document.getElementById("screen-achievements"),
+    achProgress: document.getElementById("ach-progress"),
+    achList: document.getElementById("ach-list"),
+    btnAchClose: document.getElementById("btn-ach-close"),
+    toastWrap: document.getElementById("toast-wrap"),
+    // Online leaderboard
+    btnLeaderboard: document.getElementById("btn-leaderboard"),
+    btnOverLeaderboard: document.getElementById("btn-over-leaderboard"),
+    screenLeaderboard: document.getElementById("screen-leaderboard"),
+    lbList: document.getElementById("lb-list"),
+    btnLbClose: document.getElementById("btn-lb-close"),
+    lbEntry: document.getElementById("lb-entry"),
+    lbEntryPrompt: document.getElementById("lb-entry-prompt"),
+    lbEntryForm: document.getElementById("lb-entry-form"),
+    lbInitials: document.getElementById("lb-initials"),
+    btnLbSubmit: document.getElementById("btn-lb-submit"),
+    lbStatus: document.getElementById("lb-status"),
   };
 
   // ---------- Layout ----------
@@ -73,13 +187,16 @@
     view.h = h;
 
     sizeSprites();
-    if (game.state === "playing" && prevW > 0 && prevH > 0) {
+    // The pinball run owns its own normalized->pixel projection; re-derive it
+    // (it rescales any in-flight ball to the new rect internally).
+    if (game.pin) PINBALL.layout(game.pin, view);
+    if ((game.state === "playing" || game.state === "countdown") && prevW > 0 && prevH > 0) {
       hexy.x *= w / prevW;
       hexy.y *= h / prevH;
       clampHexy();
     }
-    // Hexy moved in the rescale -- re-sync the smoothed reticle so it does not
-    // glide across the canvas. Offset variations self-absorb the resize.
+    // Hexy moved in the rescale -- snap the aim target back onto his head so the
+    // reticle doesn't draw a stale frame at the old spot before the next update.
     if (hexy.w > 0) {
       const ht = headTarget();
       game.aimX = ht.x;
@@ -185,14 +302,20 @@
   const pointer = { x: 0, y: 0 };
 
   const game = {
-    state: "loading", // loading | start | playing | roundEnd | gameOver
+    // loading | start | countdown | playing | roundEnd | roundCard | gameOver
+    // Pinball bonus phase (after round 10): pinIntro | pinPlaying | pinCapture | pinDone
+    // God Gamer final boss (after clearing pinball): blackjack
+    state: "loading",
     round: 0,
     score: 0,
     best: 0,
     bestRound: 0,
+    bullseyes: 0,    // perfect (dead-center) rounds this run (tracked stat)
     targetRadius: 80,
     roundTime: 0,
     roundClock: 0,
+    countT: 0,       // round-start 3-2-1 countdown timer
+    countLabel: "",  // last-shown countdown face ("3"/"2"/"1"/"GO"), for change detection
     lockT: 0,        // post-pin canvas celebration timer
     cardT: 0,        // result-card display timer
     advancing: false,
@@ -204,9 +327,23 @@
     activeModifiers: null, // cumulative variations active this round
     aimX: 0,         // smoothed reticle target (what the player aims at)
     aimY: 0,
+    pin: null,       // PINBALL run state during the bonus phase (null otherwise)
+    pinBonus: 0,     // pinball points earned this run (for the game-over stat)
+    pinCleared: 0,   // tables captured in the bonus (0..5)
+    pinPlayed: false, // did this run unlock + enter the pinball finale?
+    pinVictory: false, // did the pinball finale end in a full 5-table clear?
+    bj: null,        // BLACKJACK match state during the showdown (null otherwise)
+    bjPlayed: false, // did this run reach the blackjack showdown?
+    bjBonus: 0,      // blackjack points earned this run (for the game-over stat)
+    blackjackWon: false, // did the player win 4-of-5 to clinch GOD GAMER?
   };
 
   const confetti = [];
+
+  // Pinball control state, read each frame in update() and reset between balls.
+  // ptr maps an active pointerId to the control it grabbed ("left"/"right"/"plunger").
+  const pin = { leftDown: false, rightDown: false, launchHeld: false, launchReleased: false, ptr: {} };
+  let pinBannerTimer = 0;
 
   // Reused per-frame movement state handed to the modifier subsystem.
   const moveSim = {
@@ -278,28 +415,82 @@
     a.play().catch(() => {});
   }
 
+  // ---------- Sound effects ----------
+  // Thin, tasteful synth cues built on beep()/chord() above -- no audio files.
+  // All inherit beep()'s `muted` gate, so the speaker toggle silences them.
+  function sfxGrab() {
+    beep(420, 0.06, "square", 0.10);
+    beep(640, 0.05, "square", 0.06);
+  }
+
+  function sfxMiss() {
+    beep(150, 0.26, "sawtooth", 0.16);
+    setTimeout(() => beep(104, 0.22, "sawtooth", 0.12), 60);
+  }
+
+  // Tiered success jingle -- richer the closer to a bullseye.
+  function sfxPin(points) {
+    if (points >= 1000) chord([523, 659, 784, 1046], 0.22);
+    else if (points >= 650) chord([523, 659, 784], 0.16);
+    else beep(520, 0.16, "triangle", 0.2);
+  }
+
+  function sfxClick() {
+    beep(540, 0.05, "triangle", 0.08);
+  }
+
+  function sfxUnlock() {
+    chord([784, 1046, 1318], 0.18, "triangle");
+  }
+
   // ---------- Game flow ----------
   function startGame() {
     if (game.state !== "start" && game.state !== "gameOver") return;
+    // The pinball phase resizes the wig sprite down to a ball; restore the base
+    // sprite sizes so a fresh run (incl. "Play Again") parks a full-size wig.
+    sizeSprites();
     game.round = 0;
     game.score = 0;
     game.bestRound = 0;
+    game.bullseyes = 0;
+    game.pin = null;
+    game.pinBonus = 0;
+    game.pinCleared = 0;
+    game.pinPlayed = false;
+    game.pinVictory = false;
+    game.bj = null;
+    game.bjPlayed = false;
+    game.bjBonus = 0;
+    game.blackjackWon = false;
+    resetPinInput();
     game.seed = (((Date.now() & 0xffffffff) ^ ((Math.random() * 0xffffffff) | 0)) >>> 0) || 1;
     game.modifierPlan = MOD.buildPlan(game.seed);
     game.activeModifiers = [];
     moveSim.bounceX = 0;
     moveSim.bounceY = 0;
     confetti.length = 0;
+    voice.queue.length = 0;   // drop any lines still queued from a prior run
     show(el.screenStart, false);
     show(el.screenOver, false);
     el.hud.classList.remove("hidden");
     el.hud.setAttribute("aria-hidden", "false");
+    // TEMP: jump straight to a finale phase for tuning. ?blackjack pretends the
+    // pinball finale was already cleared so the win gate is consistent.
+    if (DEV_BLACKJACK) {
+      game.round = TOTAL_ROUNDS;
+      game.pinPlayed = true;
+      game.pinCleared = PINBALL.CAPTURE_GOAL;
+      game.pinVictory = true;
+      startBlackjack();
+      return;
+    }
+    if (DEV_PINBALL) { game.round = TOTAL_ROUNDS; startPinball(); return; } // TEMP: jump straight to pinball
     nextRound();
   }
 
   function nextRound() {
     game.round += 1;
-    game.state = "playing";
+    game.state = "countdown";
     game.advancing = false;
     wig.held = false;
     wig.stuck = false;
@@ -337,6 +528,18 @@
     parkWig();
     updateHud();
     show(el.screenRound, false);
+
+    // Open on a 3-2-1 countdown: the stage is frozen and ungrabbable while a
+    // voice line plays over it, then play begins with the full round clock.
+    // The timer bar shows full during the countdown so the round looks "armed".
+    game.countT = COUNTDOWN_SECONDS;
+    game.countLabel = "";
+    el.countNum.textContent = String(COUNTDOWN_SECONDS);
+    el.countNum.classList.remove("go");
+    el.timerFill.style.transform = "scaleX(1)";
+    el.timerFill.style.background = "linear-gradient(90deg, var(--good), var(--warn))";
+    showCountdown(true);
+    playVoiceLine();
   }
 
   // Direction-specific roast for non-bullseye, non-whiff hits, so the player
@@ -377,6 +580,8 @@
     game.state = "roundEnd";
     game.score += tier.points;
     game.bestRound = Math.max(game.bestRound, tier.points);
+    // A dead-center pin is a "perfect" round; all 10 perfect == GOD GAMER.
+    if (tier.points >= SCORE_TIERS[0].points) game.bullseyes += 1;
     updateHud();
 
     if (hit) {
@@ -386,15 +591,14 @@
       wig.sdy = wig.y - hexy.y;
       hexy.pop = 1;
       spawnConfetti(tier.points >= 1000 ? 1 : 0.6);
-      if (tier.points >= 1000) chord([523, 659, 784, 1046], 0.22);
-      else beep(tier.points >= 650 ? 660 : 520, 0.16, "triangle", 0.2);
+      sfxPin(tier.points);
       fart();
       // Aftershock puff to land on the small second fart in the sample.
       setTimeout(() => spawnConfetti(0.2), 1600);
     } else {
       wig.held = false;
       game.shake = reduceMotion ? 0 : 14;
-      beep(150, 0.26, "sawtooth", 0.16);
+      sfxMiss();
     }
 
     el.roundHeadline.textContent = tier.headline;
@@ -411,26 +615,63 @@
     show(el.screenRound, true);
   }
 
+  // Countdown -> live play. Hexy starts bouncing only now, with the full clock.
+  function startPlaying() {
+    game.state = "playing";
+    showCountdown(false);
+  }
+
+  function showCountdown(visible) {
+    if (!el.countdown) return;
+    show(el.countdown, visible);
+  }
+
+  // Restart the pop animation on each new countdown face by re-triggering it.
+  function pulseCountdown() {
+    if (reduceMotion || !el.countNum) return;
+    el.countNum.classList.remove("tick");
+    void el.countNum.offsetWidth;   // force reflow so the animation replays
+    el.countNum.classList.add("tick");
+  }
+
   function proceed() {
     if (game.advancing) return;
     game.advancing = true;
     show(el.screenRound, false);
-    if (game.round >= TOTAL_ROUNDS) endGame();
-    else nextRound();
+    if (game.round >= TOTAL_ROUNDS) {
+      // The pinball finale is the win: only runs that clear the 75% base-score
+      // qualifier earn the attempt. Everyone else drops straight to the
+      // scoreboard, scored on the base game alone -- exactly as it played
+      // before the bonus existed.
+      if (game.score >= PINBALL_UNLOCK) startPinball();
+      else endGame();
+    } else {
+      nextRound();
+    }
   }
 
   function endGame() {
     game.state = "gameOver";
     el.hud.classList.add("hidden");
     el.hud.setAttribute("aria-hidden", "true");
+    showCountdown(false);  // in case the run ended straight off a countdown
+    game.pin = null;       // bonus phase is over; drop the run state
+    game.advancing = false;
 
-    const acc = Math.round((game.score / (TOTAL_ROUNDS * 1000)) * 100);
-    let verdict;
-    if (acc >= 90) verdict = "Master Wig Technician.";
-    else if (acc >= 70) verdict = "Hexy looks fabulous.";
-    else if (acc >= 45) verdict = "Patchy — but he'll take it.";
-    else if (acc >= 20) verdict = "Mostly forehead, honestly.";
-    else verdict = "Did you even aim?";
+    // A run that never unlocked the pinball finale is scored on the base game
+    // alone (10 x 1000), exactly as before the bonus existed; a run that played
+    // the finale is scored out of base + pinball. So a non-qualifier's accuracy
+    // is never diluted by points it had no shot at earning.
+    const maxScore = TOTAL_ROUNDS * 1000
+      + (game.pinPlayed ? PINBALL.maxScore() : 0)
+      + (game.bjPlayed ? BLACKJACK.maxScore() : 0);
+    const acc = Math.round((game.score / maxScore) * 100);
+    // The win (GOD GAMER) is the full gauntlet: qualify on base score, pin the
+    // wig on all five pinball course variations, THEN beat the True God Gamer at blackjack
+    // (win 4 of 5 hands). Falling short at any stage is not a win.
+    const won = game.pinPlayed && game.pinCleared >= PINBALL.CAPTURE_GOAL && game.blackjackWon;
+    const rank = RANKS.rankFor(game.score, maxScore, won);
+    const isGod = RANKS.isGodGamer(rank);
 
     const newRecord = game.score > game.best;
     if (newRecord) {
@@ -438,25 +679,54 @@
       try { localStorage.setItem(BEST_KEY, String(game.best)); } catch (_) {}
     }
 
+    el.finalRank.textContent = rank.name;
+    el.finalRank.classList.toggle("is-god", isGod);
     el.finalScore.textContent = game.score;
     el.finalAcc.textContent = acc + "%";
     el.finalBestRound.textContent = game.bestRound;
-    el.finalVerdict.textContent = verdict;
+    if (el.finalPinBonus) el.finalPinBonus.textContent = "+" + game.pinBonus;
+    if (el.finalBjBonus) el.finalBjBonus.textContent = "+" + game.bjBonus;
+    // Keep the finale phases a surprise: a phase's score (and even its name) only
+    // appears once the run actually reached it. A short run that never unlocked
+    // pinball -- or one that failed pinball before blackjack -- shows no trace of
+    // the stage it never saw.
+    if (el.finalPinCell) show(el.finalPinCell, game.pinPlayed);
+    if (el.finalBjCell) show(el.finalBjCell, game.bjPlayed);
+    el.finalVerdict.textContent = rank.blurb;
+    // The forfeiture-clause payoff: anyone short of the top rank is told, loudly.
+    show(el.finalNotGod, !isGod);
     show(el.finalRecord, newRecord);
+    // Comedic flex for clearing all five tables; purely cosmetic (no GOD GAMER).
+    if (el.finalWizard) show(el.finalWizard, game.pinCleared >= PINBALL.CAPTURE_GOAL);
+    // The reward link is the GOD GAMER payoff -- only the earned rank sees it.
+    if (el.finalPrize) show(el.finalPrize, isGod);
     show(el.screenOver, true);
-    chord(newRecord ? [523, 659, 784, 1046, 1318] : [392, 523, 659], 0.26);
+    chord(
+      isGod ? [659, 784, 988, 1318, 1568]
+            : (newRecord ? [523, 659, 784, 1046, 1318] : [392, 523, 659]),
+      0.26
+    );
+    // Offer a leaderboard spot. GOD GAMER or not, the score is what competes, so
+    // every run is checked against the online top 100.
+    maybePromptLeaderboard(game.score, isGod);
   }
 
   function spawnConfetti(intensity) {
-    if (reduceMotion) return;
     const ht = headTarget();
+    spawnConfettiAt(ht.x, ht.y, intensity);
+  }
+
+  // Burst confetti from an arbitrary point -- the base game pins at Hexy's head,
+  // the pinball phase bursts from the holder cup.
+  function spawnConfettiAt(x, y, intensity) {
+    if (reduceMotion) return;
     const n = Math.round(70 * intensity);
     const palette = ["#FE0000", "#ffffff", "#FE0000", "#fc7878", "#ffffff"];
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const sp = 120 + Math.random() * 320;
       confetti.push({
-        x: ht.x, y: ht.y,
+        x: x, y: y,
         vx: Math.cos(a) * sp,
         vy: Math.sin(a) * sp - 160,
         life: 1,
@@ -468,9 +738,573 @@
     }
   }
 
+  // ---------- Pinball bonus phase ----------
+  // After round 10, the wig becomes a pinball. The pure physics/scoring live in
+  // PINBALL (src/js/pinball.js); this section is the I/O shell: input -> step,
+  // events -> juice/score, plus the table renderer. Flow:
+  //   proceed() [round>=10] -> startPinball() -> pinIntro
+  //   pinIntro --(Launch/Space/tap)--> pinPlaying (ball served)
+  //   pinPlaying --capture--> pinCapture --(lock)--> next table or pinDone
+  //   pinPlaying --drain--> lose a ball; re-serve, or pinDone if out of balls
+  //   pinDone --(lock)--> endGame()  (the existing rank screen, reused)
+  function startPinball() {
+    game.advancing = false;
+    game.pin = PINBALL.createRun(game.seed, view);
+    game.pinBonus = 0;
+    game.pinCleared = 0;
+    game.pinPlayed = true;
+    resetPinInput();
+    el.hud.classList.remove("hidden");
+    el.hud.setAttribute("aria-hidden", "false");
+    startPinIntro();
+  }
+
+  function startPinIntro() {
+    const run = game.pin;
+    game.state = "pinIntro";
+    resetPinInput();
+    const table = PINBALL.activeTable(run);
+    el.pinTableN.textContent = String(run.idx + 1);
+    el.pinTableName.textContent = table.name;
+    el.pinTableHint.textContent = table.hint;
+    updatePinHud();
+    show(el.screenPinIntro, true);
+    chord([523, 659, 784], 0.16);
+    playVoiceLine();
+  }
+
+  function beginPinPlay() {
+    if (game.state !== "pinIntro") return;
+    show(el.screenPinIntro, false);
+    resetPinInput();
+    PINBALL.serveBall(game.pin);
+    game.state = "pinPlaying";
+  }
+
+  function updatePinball(dt) {
+    const run = game.pin;
+    PINBALL.setFlipper(run, "left", pin.leftDown);
+    PINBALL.setFlipper(run, "right", pin.rightDown);
+    const ev = PINBALL.step(run, dt, { launchHeld: pin.launchHeld, launchReleased: pin.launchReleased });
+    pin.launchReleased = false;
+
+    // While a ball is parked, the HUD timer bar doubles as the plunger charge
+    // meter; once live it reads full.
+    const live = run.ball.live;
+    el.timerFill.style.transform = "scaleX(" + (live ? 1 : run.charge) + ")";
+    el.timerFill.style.background = live
+      ? "linear-gradient(90deg, var(--good), var(--warn))"
+      : "linear-gradient(90deg, var(--warn), var(--good))";
+
+    if (ev.flipperHit) beep(300, 0.05, "square", 0.10);
+    if (ev.bumper) beep(720, 0.05, "triangle", 0.12);
+    if (ev.captured) { onPinCapture(); return; }
+    if (ev.drained) { onPinDrain(); }
+  }
+
+  function onPinCapture() {
+    const run = game.pin;
+    const pts = PINBALL.applyCapture(run);
+    game.score += pts;
+    game.pinBonus += pts;
+    game.pinCleared = run.captures;
+    game.state = "pinCapture";
+    game.lockT = 1.25;
+    resetPinInput();
+    updatePinHud();
+    const h = run.geom.holder;
+    spawnConfettiAt(h.cx, h.cy, PINBALL.isComplete(run) ? 1.4 : 1.0);
+    game.shake = reduceMotion ? 0 : 16;
+    sfxPin(1000);
+    fart();
+    showPinBanner("PINNED! +" + pts, run.captures);
+    playVoiceLine();
+  }
+
+  function onPinDrain() {
+    const run = game.pin;
+    fart(0.3);
+    game.shake = reduceMotion ? 0 : 8;
+    const remaining = PINBALL.loseBall(run);
+    if (remaining > 0) {
+      PINBALL.serveBall(run);
+      resetPinInput();
+      updatePinHud();
+      showPinBanner("Ball lost", run.captures);
+    } else {
+      finishPinball();
+    }
+  }
+
+  function advancePinTable() {
+    const run = game.pin;
+    if (PINBALL.isComplete(run) || !PINBALL.nextTable(run)) {
+      startPinDone(true);
+      return;
+    }
+    resetPinInput();
+    startPinIntro();
+  }
+
+  // Ran out of balls before clearing all five tables: end the bonus and head to
+  // the rank screen, scored on captures so far.
+  function finishPinball() {
+    startPinDone(false);
+  }
+
+  function startPinDone(victory) {
+    game.state = "pinDone";
+    game.pinVictory = victory;   // a full 5-table clear earns the blackjack showdown
+    game.lockT = victory ? 1.8 : 1.3;
+    resetPinInput();
+    if (victory) {
+      spawnConfettiAt(view.w / 2, view.h * 0.4, 1.6);
+      game.shake = reduceMotion ? 0 : 20;
+      chord([659, 784, 988, 1318, 1568], 0.26);
+      showPinBanner("FULLY WIGGED!", PINBALL.CAPTURE_GOAL);
+    } else {
+      sfxMiss();
+      showPinBanner("Out of balls", game.pin.captures);
+    }
+  }
+
+  function updatePinHud() {
+    const run = game.pin;
+    if (!run) return;
+    if (el.roundLabel) el.roundLabel.textContent = "Table";
+    el.round.textContent = (run.idx + 1) + " / " + PINBALL.CAPTURE_GOAL;
+    el.score.textContent = game.score;
+    el.best.textContent = game.best;
+  }
+
+  function showPinBanner(text, captures) {
+    if (!el.pinBanner) return;
+    el.pinBannerText.textContent = text;
+    let pips = "";
+    for (let i = 0; i < PINBALL.CAPTURE_GOAL; i++) pips += (i < captures ? "●" : "○");
+    el.pinBannerPips.textContent = pips;
+    show(el.pinBanner, true);
+    el.pinBanner.classList.remove("show");
+    void el.pinBanner.offsetWidth;   // restart the entrance animation
+    if (!reduceMotion) el.pinBanner.classList.add("show");
+    clearTimeout(pinBannerTimer);
+    pinBannerTimer = setTimeout(() => show(el.pinBanner, false), 1500);
+  }
+
+  function resetPinInput() {
+    pin.leftDown = false;
+    pin.rightDown = false;
+    pin.launchHeld = false;
+    pin.launchReleased = false;
+    pin.ptr = {};
+  }
+
+  // Drive the existing wig sprite from the ball each frame so drawWig() renders
+  // it (spinning with the ball's angular state unless reduced motion is set).
+  function syncWigToBall(run) {
+    if (!sprites.wig) return;
+    const b = run.ball;
+    const d = b.r * 2.5;
+    const aspect = sprites.wig.naturalHeight / sprites.wig.naturalWidth;
+    wig.w = d;
+    wig.h = d * aspect;
+    wig.x = b.x - wig.w / 2;
+    wig.y = b.y - wig.h / 2;
+    wig.wob = reduceMotion ? 0 : b.spin;
+    wig.stuck = false;
+    wig.held = false;
+  }
+
+  function pinRoundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawPinball() {
+    const run = game.pin;
+    if (!run || !run.geom) return;
+    const rect = run.rect;
+    const g = run.geom;
+
+    ctx.save();
+    pinRoundRect(rect.x, rect.y, rect.w, rect.h, Math.min(rect.w, rect.h) * 0.045);
+    ctx.fillStyle = "rgba(8, 8, 11, 0.82)";
+    ctx.fill();
+    ctx.lineWidth = Math.max(3, rect.w * 0.012);
+    ctx.strokeStyle = "rgba(254, 0, 0, 0.55)";
+    ctx.stroke();
+    ctx.restore();
+
+    drawPinballHolder(run);
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(244, 238, 254, 0.45)";
+    ctx.lineWidth = Math.max(2, rect.w * 0.012);
+    for (const w of g.walls) {
+      ctx.beginPath();
+      ctx.moveTo(w.ax, w.ay);
+      ctx.lineTo(w.bx, w.by);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    for (const bm of g.bumpers) {
+      ctx.beginPath();
+      ctx.arc(bm.x, bm.y, bm.r, 0, Math.PI * 2);
+      ctx.fillStyle = bm.flash > 0 ? "#ffffff" : "rgba(254, 0, 0, 0.85)";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.stroke();
+    }
+
+    for (const f of g.flippers) drawPinballFlipper(f);
+    drawPinballPlunger(run);
+
+    syncWigToBall(run);
+    if (run.ball.r > 0) drawWig();
+
+    drawPinballStatus(run);
+  }
+
+  function drawPinballHolder(run) {
+    const h = run.geom.holder;
+    const table = PINBALL.activeTable(run);
+
+    // Hexy's head is the target graphic; the holder cup sits on his crown and
+    // slides with it on the moving tables.
+    if (sprites.bald) {
+      const headW = h.hw * 3.0;
+      const aspect = sprites.bald.naturalHeight / sprites.bald.naturalWidth;
+      const headH = headW * aspect;
+      const headX = h.cx - headW / 2;
+      const headY = h.cy - headH * HEAD_ANCHOR.y;   // crown anchor at the cup center
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      ctx.drawImage(sprites.bald, headX, headY, headW, headH);
+      ctx.restore();
+    }
+
+    // The cup: a U open at the bottom (matches the physics: top + two sides).
+    // Gated tables tint it green when open / red when sealed.
+    const gated = table.rule.type === "shutter" || table.rule.type === "gauntlet";
+    const open = run.ruleState.shutterOpen;
+    const col = gated
+      ? (open ? "rgba(65, 224, 163, 0.95)" : "rgba(254, 0, 0, 0.95)")
+      : "rgba(255, 194, 75, 0.95)";
+    const l = h.cx - h.hw, r = h.cx + h.hw, t = h.cy - h.hh, b = h.cy + h.hh;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(3, run.rect.w * 0.018);
+    ctx.strokeStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(l, b);
+    ctx.lineTo(l, t);
+    ctx.lineTo(r, t);
+    ctx.lineTo(r, b);
+    ctx.stroke();
+    if (gated && !open) {
+      ctx.beginPath();
+      ctx.moveTo(l, b);
+      ctx.lineTo(r, b);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawPinballFlipper(f) {
+    const tip = PINBALL.flipperTip(f);
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineWidth = f.thick * 2;
+    ctx.strokeStyle = "rgba(254, 0, 0, 0.95)";
+    ctx.beginPath();
+    ctx.moveTo(f.x, f.y);
+    ctx.lineTo(tip.x, tip.y);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.thick * 0.85, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawPinballPlunger(run) {
+    if (run.ball.live) return;
+    const rect = run.rect;
+    const x = run.geom.plunger.x;
+    const y0 = rect.y + rect.h * 0.92;
+    const y1 = rect.y + rect.h * 0.66;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineWidth = Math.max(4, rect.w * 0.022);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.20)";
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(65, 224, 163, 0.95)";
+    ctx.beginPath();
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y0 + (y1 - y0) * run.charge);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPinballStatus(run) {
+    const rect = run.rect;
+    const r = Math.max(3, rect.w * 0.018);
+    // Balls remaining -- red dots, lower-left inside the table.
+    let bx = rect.x + r * 2.2;
+    const by = rect.y + rect.h * 0.95;
+    for (let i = 0; i < run.balls; i++) {
+      ctx.beginPath();
+      ctx.arc(bx, by, r, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(254, 0, 0, 0.9)";
+      ctx.fill();
+      bx += r * 2.6;
+    }
+    // Capture progress -- filled (done) / outlined (todo) dots, upper-left.
+    let cx = rect.x + r * 2.2;
+    const cy = rect.y + rect.h * 0.045;
+    for (let i = 0; i < PINBALL.CAPTURE_GOAL; i++) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r * 0.8, 0, Math.PI * 2);
+      if (i < run.captures) {
+        ctx.fillStyle = "rgba(65, 224, 163, 0.95)";
+        ctx.fill();
+      } else {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(244, 238, 254, 0.6)";
+        ctx.stroke();
+      }
+      cx += r * 2.4;
+    }
+  }
+
+  // Keyboard flippers/plunger. Flipper keys hold while down; the plunger only
+  // arms while a ball is parked, so Space never fights a flipper press.
+  function handlePinKey(e, down) {
+    switch (e.code) {
+      case "ArrowLeft":
+      case "KeyA":
+        e.preventDefault();
+        pin.leftDown = down;
+        break;
+      case "ArrowRight":
+      case "KeyD":
+        e.preventDefault();
+        pin.rightDown = down;
+        break;
+      case "Space":
+      case "ArrowDown":
+      case "KeyS":
+        e.preventDefault();
+        if (game.pin && !game.pin.ball.live) {
+          if (down) pin.launchHeld = true;
+          else { pin.launchHeld = false; pin.launchReleased = true; }
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  // ---------- Blackjack finale (God Gamer final boss) ----------
+  // Clearing all five pinball tables earns the last gate: blackjack vs. the True God Gamer,
+  // best of five, win four to be crowned. The pure rules/progression live in
+  // BLACKJACK (src/js/blackjack.js); this section is the DOM shell -- it renders
+  // the felt, wires Hit/Stand/Next, and folds each settled hand into the match.
+  //   pinDone (victory) -> startBlackjack() -> state "blackjack"
+  //   Hit/Stand -> hand settles -> Next applies the result
+  //   4 wins -> finishBlackjack(true);  2nd loss -> finishBlackjack(false)
+  //   finishBlackjack() -> endGame()  (the existing rank screen, reused)
+  function startBlackjack() {
+    game.pin = null;            // pinball phase is over; stop drawing the table
+    game.advancing = false;
+    game.bjPlayed = true;
+    game.blackjackWon = false;
+    game.bj = BLACKJACK.createGame(game.seed);
+    game.state = "blackjack";
+    el.hud.classList.add("hidden");
+    el.hud.setAttribute("aria-hidden", "true");
+    bjRender();
+    show(el.screenBlackjack, true);
+    chord([523, 659, 784], 0.16);
+    playVoiceLine();
+  }
+
+  var BJ_SUITS = { S: "♠", H: "♥", D: "♦", C: "♣" };
+
+  function bjSuitSymbol(suit) { return BJ_SUITS[suit] || suit; }
+
+  // Render one seat's cards. When hideLast is set (the dealer's hole during the
+  // player's turn) the final card draws as a face-down back.
+  function renderBjHand(container, cards, hideLast) {
+    container.textContent = "";
+    for (var i = 0; i < cards.length; i++) {
+      var c = cards[i];
+      var d = document.createElement("div");
+      if (hideLast && i === cards.length - 1) {
+        d.className = "bj-card bj-hole";
+        d.textContent = "★";   // star back
+      } else {
+        d.className = "bj-card" + (c.red ? " red" : "");
+        var rank = document.createElement("span");
+        rank.className = "bj-rank";
+        rank.textContent = c.rank;
+        var suit = document.createElement("span");
+        suit.className = "bj-suit";
+        suit.textContent = bjSuitSymbol(c.suit);
+        d.append(rank, suit);
+      }
+      container.appendChild(d);
+    }
+  }
+
+  function bjTotalText(cards, hideHole) {
+    if (!cards.length) return "";
+    if (hideHole) return "Shows " + BLACKJACK.handValue([cards[0]]).total;
+    var v = BLACKJACK.handValue(cards);
+    if (v.total > 21) return "Bust (" + v.total + ")";
+    if (BLACKJACK.isBlackjack(cards)) return "Blackjack!";
+    return (v.soft ? "Soft " : "") + v.total;
+  }
+
+  function bjPips(n, total) {
+    var s = "";
+    for (var i = 0; i < total; i++) s += (i < n ? "●" : "○");
+    return s;
+  }
+
+  function bjResultText(g, r) {
+    if (r === "win") {
+      return (g.roundsWon + 1 >= BLACKJACK.ROUNDS_TO_WIN)
+        ? "FOURTH WIN — you beat the True God Gamer!"
+        : "You take the hand.";
+    }
+    if (r === "lose") {
+      return (g.roundsLost + 1 > BLACKJACK.LOSSES_ALLOWED)
+        ? "The True God Gamer wins. Your God Gamer run ends here."
+        : "The True God Gamer takes it — one loss left to give.";
+    }
+    return "Push. Doesn't count — re-deal.";
+  }
+
+  function bjNextLabel(g, r) {
+    if (r === "win" && g.roundsWon + 1 >= BLACKJACK.ROUNDS_TO_WIN) return "Claim your rank";
+    if (r === "lose" && g.roundsLost + 1 > BLACKJACK.LOSSES_ALLOWED) return "See your rank";
+    if (r === "push") return "Re-deal";
+    return "Next hand";
+  }
+
+  function bjRender() {
+    var g = game.bj;
+    if (!g) return;
+    el.bjPipsWin.textContent = bjPips(g.roundsWon, BLACKJACK.ROUNDS_TO_WIN);
+    el.bjPipsLoss.textContent = bjPips(g.roundsLost, BLACKJACK.LOSSES_ALLOWED + 1);
+
+    renderBjHand(el.bjDealerCards, g.dealer, g.dealerHole);
+    el.bjDealerTotal.textContent = bjTotalText(g.dealer, g.dealerHole);
+    renderBjHand(el.bjPlayerCards, g.player, false);
+    el.bjPlayerTotal.textContent = bjTotalText(g.player, false);
+
+    var settled = g.phase === "result";
+    show(el.btnBjHit, !settled);
+    show(el.btnBjStand, !settled);
+    show(el.btnBjNext, settled);
+    if (settled) {
+      el.bjResult.textContent = bjResultText(g, g.result);
+      el.bjResult.className = "bj-result is-" + g.result;
+      el.btnBjNext.textContent = bjNextLabel(g, g.result);
+    } else {
+      el.bjResult.textContent = "";
+      el.bjResult.className = "bj-result";
+    }
+  }
+
+  function afterBjPlayerAction() {
+    bjRender();
+    if (game.bj.phase === "result") onBjSettled();
+  }
+
+  function onBjSettled() {
+    var r = game.bj.result;
+    if (r === "win") {
+      sfxPin(1000);
+      fart();
+      spawnConfettiAt(view.w / 2, view.h * 0.32, 0.7);
+    } else if (r === "lose") {
+      sfxMiss();
+      game.shake = reduceMotion ? 0 : 12;
+    } else {
+      beep(440, 0.12, "triangle", 0.12);
+    }
+    playVoiceLine();
+  }
+
+  function bjHit() {
+    var g = game.bj;
+    if (!g || g.phase !== "player") return;
+    BLACKJACK.hit(g);
+    afterBjPlayerAction();
+  }
+
+  function bjStand() {
+    var g = game.bj;
+    if (!g || g.phase !== "player") return;
+    BLACKJACK.stand(g);
+    afterBjPlayerAction();
+  }
+
+  function bjNext() {
+    var g = game.bj;
+    if (!g || g.phase !== "result") return;
+    // Every hand won off the True God Gamer banks points toward the final score.
+    // The GOD GAMER crown is gated on winning the match (see endGame), not on
+    // these points -- they only feed the rank ladder and the leaderboard.
+    if (g.result === "win") {
+      game.score += BLACKJACK.WIN_POINTS;
+      game.bjBonus += BLACKJACK.WIN_POINTS;
+    }
+    BLACKJACK.applyResult(g);
+    if (g.complete) { finishBlackjack(true); return; }
+    if (g.failed) { finishBlackjack(false); return; }
+    BLACKJACK.newHand(g);
+    bjRender();
+    chord([392, 523, 659], 0.12);
+    playVoiceLine();
+  }
+
+  function finishBlackjack(won) {
+    game.blackjackWon = won;
+    game.bj = null;
+    show(el.screenBlackjack, false);
+    endGame();
+  }
+
   // ---------- Update ----------
   function update(dt) {
-    if (game.state === "playing") {
+    if (game.state === "countdown") {
+      game.countT -= dt;
+      // "3" -> "2" -> "1" -> "GO" (held ~0.45s), then live play begins.
+      const label = game.countT > 0 ? String(Math.ceil(game.countT)) : "GO";
+      if (label !== game.countLabel) {
+        game.countLabel = label;
+        el.countNum.textContent = label;
+        el.countNum.classList.toggle("go", label === "GO");
+        pulseCountdown();
+        beep(label === "GO" ? 720 : 440, 0.09, "triangle", 0.14);
+      }
+      if (game.countT <= -0.45) startPlaying();
+    } else if (game.state === "playing") {
       game.roundClock -= dt;
       const frac = Math.max(0, game.roundClock / game.roundTime);
       el.timerFill.style.transform = "scaleX(" + frac + ")";
@@ -498,14 +1332,27 @@
       if (wig.stuck) { wig.x = hexy.x + wig.sdx; wig.y = hexy.y + wig.sdy; }
       game.cardT -= dt;
       if (game.cardT <= 0) proceed();
+    } else if (game.state === "pinPlaying") {
+      updatePinball(dt);
+    } else if (game.state === "pinCapture" || game.state === "pinDone") {
+      game.lockT -= dt;
+      if (game.lockT <= 0) {
+        if (game.state === "pinCapture") advancePinTable();
+        else if (game.pinVictory) startBlackjack();   // cleared all five -> final boss
+        else endGame();                               // ran out of balls -> scoreboard
+      }
     }
 
+    // The aim target IS the head graphic's crown point -- track it exactly so a
+    // bullseye pins the wig where it visually belongs. A smoothed follower used
+    // to live here, but its lag left the reticle (and the score target) trailing
+    // behind the moving head, so a "perfect" pin landed off the actual forehead.
     if (hexy.w > 0 &&
-        (game.state === "playing" || game.state === "roundEnd" || game.state === "roundCard")) {
+        (game.state === "countdown" || game.state === "playing" ||
+         game.state === "roundEnd" || game.state === "roundCard")) {
       const ht = headTarget();
-      const s = Math.min(1, dt * 14);
-      game.aimX += (ht.x - game.aimX) * s;
-      game.aimY += (ht.y - game.aimY) * s;
+      game.aimX = ht.x;
+      game.aimY = ht.y;
     }
 
     if (hexy.pop > 0) hexy.pop = Math.max(0, hexy.pop - dt * 3.2);
@@ -551,13 +1398,17 @@
       ctx.translate((Math.random() - 0.5) * game.shake, (Math.random() - 0.5) * game.shake);
     }
 
-    drawSpotlight();
-
-    if (game.state === "playing" || game.state === "roundEnd" || game.state === "roundCard") {
-      drawWarpTelegraph();
-      drawHexy();
-      drawReticle();  // on top of Hexy so it stays visible when he bounces over it
-      drawWig();
+    if (game.pin) {
+      drawPinball();
+    } else {
+      drawSpotlight();
+      if (game.state === "countdown" || game.state === "playing" ||
+          game.state === "roundEnd" || game.state === "roundCard") {
+        drawWarpTelegraph();
+        drawHexy();
+        drawReticle();  // on top of Hexy so it stays visible when he bounces over it
+        drawWig();
+      }
     }
 
     drawConfetti();
@@ -661,6 +1512,7 @@
     game.lastTick = now;
     if (game.state !== "loading") update(dt);
     render();
+    tickMusicUi();
     requestAnimationFrame(frame);
   }
 
@@ -672,6 +1524,24 @@
   }
 
   function onDown(e) {
+    if (game.state === "pinPlaying") {
+      e.preventDefault();
+      localPoint(e);
+      // Ball parked -> any press charges the plunger; ball live -> left/right
+      // screen-half works that flipper. Keyed by pointerId for multitouch.
+      if (!game.pin.ball.live) {
+        pin.launchHeld = true;
+        pin.ptr[e.pointerId] = "plunger";
+      } else {
+        const side = pointer.x < view.w / 2 ? "left" : "right";
+        if (side === "left") pin.leftDown = true; else pin.rightDown = true;
+        pin.ptr[e.pointerId] = side;
+      }
+      if (canvas.setPointerCapture && e.pointerId != null) {
+        try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+      return;
+    }
     if (game.state !== "playing" || wig.stuck) return;
     e.preventDefault();
     localPoint(e);
@@ -680,7 +1550,7 @@
     if (canvas.setPointerCapture && e.pointerId != null) {
       try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     }
-    beep(420, 0.07, "square", 0.1);
+    sfxGrab();
   }
 
   function onMove(e) {
@@ -689,6 +1559,10 @@
   }
 
   function onUp(e) {
+    if (game.state === "pinPlaying" || (e && e.pointerId != null && pin.ptr[e.pointerId])) {
+      releasePinPointer(e ? e.pointerId : null);
+      return;
+    }
     if (!wig.held || game.state !== "playing") return;
     e.preventDefault();
     localPoint(e);
@@ -697,19 +1571,35 @@
     evaluatePin();
   }
 
+  // Release whatever control a lifted/cancelled pointer was holding. A plunger
+  // release fires the launch on the next step; flippers just drop.
+  function releasePinPointer(pointerId) {
+    const role = pointerId != null ? pin.ptr[pointerId] : null;
+    if (role === "plunger") { pin.launchHeld = false; pin.launchReleased = true; }
+    else if (role === "left") pin.leftDown = false;
+    else if (role === "right") pin.rightDown = false;
+    if (pointerId != null) delete pin.ptr[pointerId];
+  }
+
   canvas.addEventListener("pointerdown", onDown);
   window.addEventListener("pointerdown", () => {
     if (game.state === "roundCard") proceed();
+    else if (game.state === "pinIntro") beginPinPlay();   // tap anywhere to launch in
   });
   window.addEventListener("pointermove", onMove, { passive: false });
   window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", () => {
+  window.addEventListener("pointercancel", (e) => {
     if (wig.held) { wig.held = false; canvas.classList.remove("grabbing"); }
+    if (e && e.pointerId != null && pin.ptr[e.pointerId]) releasePinPointer(e.pointerId);
   });
 
-  el.btnStart.addEventListener("click", startGame);
-  el.btnAgain.addEventListener("click", startGame);
-  el.btnRoundNext.addEventListener("click", proceed);
+  el.btnStart.addEventListener("click", () => { sfxClick(); startGame(); });
+  el.btnAgain.addEventListener("click", () => { sfxClick(); startGame(); });
+  el.btnRoundNext.addEventListener("click", () => { sfxClick(); proceed(); });
+  if (el.btnPinStart) el.btnPinStart.addEventListener("click", () => { sfxClick(); beginPinPlay(); });
+  if (el.btnBjHit) el.btnBjHit.addEventListener("click", () => { sfxClick(); bjHit(); });
+  if (el.btnBjStand) el.btnBjStand.addEventListener("click", () => { sfxClick(); bjStand(); });
+  if (el.btnBjNext) el.btnBjNext.addEventListener("click", () => { sfxClick(); bjNext(); });
   el.mute.addEventListener("click", () => {
     muted = !muted;
     try { localStorage.setItem(MUTE_KEY, muted ? "1" : "0"); } catch (_) {}
@@ -718,11 +1608,32 @@
   });
 
   window.addEventListener("keydown", (e) => {
+    // Don't hijack typing -- e.g. the leaderboard initials field owns its own keys.
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (game.state === "blackjack") {
+      const g = game.bj;
+      if (!g) return;
+      if (g.phase === "player") {
+        if (e.code === "KeyH" || e.code === "ArrowUp") { e.preventDefault(); bjHit(); }
+        else if (e.code === "KeyS" || e.code === "ArrowDown" || e.code === "Space" || e.code === "Enter") { e.preventDefault(); bjStand(); }
+      } else if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); bjNext(); }
+      return;
+    }
+    if (game.state === "pinIntro") {
+      if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); beginPinPlay(); }
+      return;
+    }
+    if (game.state === "pinPlaying") { handlePinKey(e, true); return; }
     if (e.code === "Space" || e.code === "Enter") {
       if (game.state === "start") { e.preventDefault(); startGame(); }
       else if (game.state === "gameOver") { e.preventDefault(); startGame(); }
       else if (game.state === "roundCard") { e.preventDefault(); proceed(); }
     }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (game.state === "pinPlaying") handlePinKey(e, false);
   });
 
   window.addEventListener("resize", resize);
@@ -733,9 +1644,888 @@
   }
 
   function updateHud() {
+    if (el.roundLabel) el.roundLabel.textContent = "Round";
     el.round.textContent = game.round + " / " + TOTAL_ROUNDS;
     el.score.textContent = game.score;
     el.best.textContent = game.best;
+  }
+
+  // ---------- Music / Radio ----------
+  // An always-on "radio station": the album is one looping timeline and the
+  // play position comes from the wall clock, so every visit lands live. The
+  // track order reshuffles each UTC day. The widget loads looking like it is
+  // already playing (silent, clock-driven progress); the first interaction
+  // engages real audio -- unmute jumps to the live spot, after which it is a
+  // plain CD player (pause holds, skip changes track, skip-while-paused stays
+  // paused). Music has its own mute, independent of the game's sound toggle.
+  const radio = {
+    ready: false,
+    tracks: [],      // manifest order: [{file, title, duration}]
+    order: [],       // playlist: indices into `tracks`, shuffled for today
+    durations: [],   // normalized seconds, aligned to `order`
+    album: "Hexy Radio",
+    audio: null,
+    pos: 0,          // index into `order`
+    gen: 0,          // load generation, so stale loadedmetadata seeks no-op
+    engaged: false,  // has the user taken control (left the live preview)?
+    paused: false,   // CD transport state (after engage)
+    musicMuted: true,
+    volume: DEFAULT_MUSIC_VOL,
+    accum: 0,        // audible seconds on the current track-play
+    lastTime: 0,
+    reachedEnd: false,
+    marked: false,   // already credited this track-play as "listened"
+    downloading: false,
+    statusTimer: 0,
+    seeking: false,  // user is dragging the progress bar
+    lastPct: -1,     // last aria-valuenow we wrote (avoids per-frame churn)
+    errStreak: 0,    // consecutive unplayable tracks (auto-skip loop guard)
+  };
+
+  function trackUrl(file) { return "assets/music/" + encodeURIComponent(file); }
+  function voiceUrl(file) { return "assets/voicelines/" + encodeURIComponent(file); }
+  function currentMeta() { return radio.tracks[radio.order[radio.pos]] || { file: "", title: "" }; }
+
+  async function bootMusic() {
+    if (!RADIO) { console.error("Hexy Radio: src/js/radio.js failed to load -- player hidden."); return; }
+    let manifest;
+    try {
+      const res = await fetch("assets/music/manifest.json", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      manifest = await res.json();
+    } catch (e) {
+      console.info("Hexy Radio: no music manifest (" + e.message + ") -- player hidden.");
+      return;
+    }
+    const tracks = (manifest && Array.isArray(manifest.tracks))
+      ? manifest.tracks.filter((t) => t && t.file) : [];
+    if (tracks.length === 0) {
+      console.info("Hexy Radio: manifest has no tracks -- player hidden.");
+      return;
+    }
+    radio.tracks = tracks;
+    radio.album = manifest.album || "Hexy Radio";
+    const indices = tracks.map((_, i) => i);
+    radio.order = RADIO.dayOrder(indices, RADIO.dayIndex(Date.now()));
+    radio.durations = RADIO.normalizeDurations(radio.order.map((i) => tracks[i].duration));
+
+    radio.volume = loadVolume();
+    radio.audio = new Audio();
+    radio.audio.preload = "auto";
+    radio.audio.muted = true;
+    radio.audio.volume = radio.volume;
+    radio.audio.addEventListener("ended", onRadioEnded);
+    radio.audio.addEventListener("timeupdate", onRadioTime);
+    radio.audio.addEventListener("error", onRadioError);
+
+    el.musicPrev.addEventListener("click", onMusicPrev);
+    el.musicPlayPause.addEventListener("click", onMusicPlayPause);
+    el.musicNext.addEventListener("click", onMusicNext);
+    el.musicMute.addEventListener("click", onMusicMute);
+    el.musicSeek.addEventListener("pointerdown", onSeekDown);
+    el.musicSeek.addEventListener("pointermove", onSeekMove);
+    el.musicSeek.addEventListener("pointerup", onSeekUp);
+    el.musicSeek.addEventListener("pointercancel", onSeekUp);
+    el.musicSeek.addEventListener("keydown", onSeekKey);
+    el.musicVol.value = String(radio.volume);
+    el.musicVol.addEventListener("input", onMusicVolume);
+    el.musicDownload.addEventListener("click", downloadAlbum);
+
+    const live = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
+    radio.pos = live.index;
+    el.musicMute.classList.add("cta-pulse");
+    updateMusicMeta();
+    updateMuteUi();
+    updatePlayPauseUi();
+    show(el.music, true);
+    radio.ready = true;
+    evalAndApply(true);   // reconcile achievement totals now song count is known
+  }
+
+  // Load a track, optionally seek to an offset, optionally start playing.
+  function startTrack(pos, offset, opts) {
+    const a = radio.audio;
+    if (!a) return;
+    const n = radio.order.length;
+    radio.pos = ((pos % n) + n) % n;
+    radio.accum = 0;
+    radio.lastTime = Math.max(0, offset || 0);
+    radio.reachedEnd = false;
+    radio.marked = false;
+    radio.gen += 1;
+    const myGen = radio.gen;
+    a.muted = !!opts.muted;
+    a.src = trackUrl(currentMeta().file);
+    const onMeta = () => {
+      if (myGen !== radio.gen) return;   // superseded by a newer load
+      radio.errStreak = 0;               // this track loaded -- clear the skip guard
+      if (offset && offset > 0) {
+        try {
+          const safe = isFinite(a.duration) ? Math.min(offset, Math.max(0, a.duration - 0.25)) : offset;
+          a.currentTime = safe;
+          radio.lastTime = a.currentTime;
+        } catch (_) {}
+      }
+      if (opts.play) a.play().catch(() => {});
+    };
+    a.addEventListener("loadedmetadata", onMeta, { once: true });
+    a.load();
+    updateMusicMeta();
+    updatePlayPauseUi();
+  }
+
+  function engage() {
+    if (radio.engaged) return;
+    radio.engaged = true;
+    el.musicMute.classList.remove("cta-pulse");
+  }
+
+  function loadVolume() {
+    try {
+      const v = parseFloat(localStorage.getItem(MUSIC_VOL_KEY));
+      if (isFinite(v) && v >= 0 && v <= 1) return v;
+    } catch (_) {}
+    return DEFAULT_MUSIC_VOL;
+  }
+
+  function onMusicVolume() {
+    let v = parseFloat(el.musicVol.value);
+    if (!isFinite(v)) v = DEFAULT_MUSIC_VOL;
+    v = Math.min(1, Math.max(0, v));
+    radio.volume = v;
+    if (radio.audio) radio.audio.volume = v;   // persists across track changes (same element)
+    try { localStorage.setItem(MUSIC_VOL_KEY, String(v)); } catch (_) {}
+  }
+
+  function onMusicMute() {
+    if (!radio.engaged) {
+      // Headline action: unmute jumps to the live clock position and plays.
+      engage();
+      radio.musicMuted = false;
+      radio.paused = false;
+      const live = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
+      startTrack(live.index, live.offset, { play: true, muted: false });
+    } else {
+      radio.musicMuted = !radio.musicMuted;
+      if (radio.audio) radio.audio.muted = radio.musicMuted;
+    }
+    updateMuteUi();
+    updatePlayPauseUi();
+  }
+
+  function onMusicPlayPause() {
+    if (!radio.engaged) {
+      // Pausing the live preview freezes it at the live spot, still silent.
+      engage();
+      radio.paused = true;
+      const live = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
+      startTrack(live.index, live.offset, { play: false, muted: radio.musicMuted });
+    } else {
+      radio.paused = !radio.paused;
+      const a = radio.audio;
+      if (a) {
+        if (radio.paused) a.pause();
+        else a.play().catch(() => {});
+      }
+    }
+    updatePlayPauseUi();
+  }
+
+  function onMusicNext() {
+    engage();
+    gotoTrack(RADIO.nextIndex(radio.pos, radio.order.length));
+  }
+
+  function onMusicPrev() {
+    engage();
+    const a = radio.audio;
+    if (a && isFinite(a.currentTime) && a.currentTime > PREV_RESTART_SEC) {
+      startTrack(radio.pos, 0, { play: !radio.paused, muted: radio.musicMuted });
+    } else {
+      gotoTrack(RADIO.prevIndex(radio.pos, radio.order.length));
+    }
+  }
+
+  function gotoTrack(pos) {
+    // Skip while paused selects the new track but stays paused (CD behavior).
+    startTrack(pos, 0, { play: !radio.paused, muted: radio.musicMuted });
+  }
+
+  // ---------- Seeking (clickable / draggable progress bar) ----------
+  function clampSeek(offset, dur) {
+    if (!(dur > 0)) return 0;
+    return Math.min(dur - 0.05, Math.max(0, offset));
+  }
+
+  // Where playback currently sits, in seconds -- from the audio element once
+  // engaged, or from the live clock while still previewing.
+  function currentOffset() {
+    const a = radio.audio;
+    if (radio.engaged && a && isFinite(a.currentTime)) return a.currentTime;
+    const live = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
+    return live.index === radio.pos ? live.offset : 0;
+  }
+
+  // Jump to an absolute offset in the current track. Scrubbing the live preview
+  // takes control of the station (engage) but keeps the mute/pause state, so a
+  // muted preview stays silent until the user actually unmutes.
+  function seekToOffset(offset) {
+    if (!radio.ready) return;
+    const a = radio.audio;
+    if (!radio.engaged) {
+      const dur = radio.durations[radio.pos] || 0;
+      engage();
+      startTrack(radio.pos, clampSeek(offset, dur), { play: !radio.paused, muted: radio.musicMuted });
+    } else {
+      if (!a) return;
+      const dur = (isFinite(a.duration) && a.duration > 0) ? a.duration : (radio.durations[radio.pos] || 0);
+      if (dur <= 0) return;
+      const target = clampSeek(offset, dur);
+      try { a.currentTime = target; } catch (_) {}
+      radio.lastTime = target;   // the jump must not count as audible listen progress
+    }
+  }
+
+  function seekFromClientX(clientX) {
+    const rect = el.musicSeek.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    let frac = (clientX - rect.left) / rect.width;
+    frac = Math.min(1, Math.max(0, frac));
+    const a = radio.audio;
+    const dur = (radio.engaged && a && isFinite(a.duration) && a.duration > 0)
+      ? a.duration : (radio.durations[radio.pos] || 0);
+    seekToOffset(frac * dur);
+  }
+
+  function onSeekDown(e) {
+    if (!radio.ready) return;
+    e.preventDefault();
+    e.stopPropagation();   // don't also trip the roundCard "tap anywhere to advance"
+    radio.seeking = true;
+    if (el.musicSeek.setPointerCapture && e.pointerId != null) {
+      try { el.musicSeek.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    seekFromClientX(e.clientX);
+  }
+
+  function onSeekMove(e) {
+    if (!radio.seeking) return;
+    seekFromClientX(e.clientX);
+  }
+
+  function onSeekUp() { radio.seeking = false; }
+
+  function onSeekKey(e) {
+    let delta;
+    if (e.key === "ArrowLeft" || e.key === "ArrowDown") delta = -5;
+    else if (e.key === "ArrowRight" || e.key === "ArrowUp") delta = 5;
+    else if (e.key === "Home") delta = -Infinity;
+    else if (e.key === "End") delta = Infinity;
+    else return;
+    e.preventDefault();
+    seekToOffset(currentOffset() + delta);
+  }
+
+  function onRadioEnded() {
+    radio.reachedEnd = true;
+    creditListenIfQualified();
+    // Continuous album: roll into the next track, preserving transport state.
+    gotoTrack(RADIO.nextIndex(radio.pos, radio.order.length));
+  }
+
+  // A missing or unplayable file must not freeze the station -- skip past it,
+  // preserving the play/pause state. Manifests are auto-rebuilt on launch, so
+  // this is a safety net for a track that vanished or failed to decode.
+  function onRadioError() {
+    const a = radio.audio;
+    if (!radio.ready || !a || !a.error) return;   // only act on a real media error
+    const meta = currentMeta();
+    console.warn("Hexy Radio: skipping unplayable track '" + (meta.file || "?") + "'.");
+    radio.errStreak += 1;
+    if (radio.errStreak >= radio.order.length) {
+      // A full cycle failed to load -- stop rather than spin through 404s forever.
+      radio.errStreak = 0;
+      try { a.pause(); } catch (_) {}
+      radio.paused = true;
+      setMusicStatus("No playable tracks found.", true);
+      updatePlayPauseUi();
+      return;
+    }
+    gotoTrack(RADIO.nextIndex(radio.pos, radio.order.length));
+  }
+
+  function onRadioTime() {
+    const a = radio.audio;
+    if (!a || !radio.engaged) return;
+    const t = a.currentTime;
+    const dt = t - radio.lastTime;
+    radio.lastTime = t;
+    // Count only forward, audible progress (seek gaps are ignored).
+    if (dt > 0 && dt < 2 && !a.muted && !a.paused) {
+      radio.accum += dt;
+      creditListenIfQualified();
+    }
+  }
+
+  function creditListenIfQualified() {
+    if (radio.marked || !ACH) return;
+    if (ACH.qualifiesAsListened(radio.accum, radio.reachedEnd)) {
+      radio.marked = true;
+      markSongListened(currentMeta().file);
+    }
+  }
+
+  function updateMusicMeta() {
+    el.musicTitle.textContent = currentMeta().title || "—";
+    el.musicDur.textContent = RADIO.formatTime(radio.durations[radio.pos] || 0);
+  }
+
+  function updateMuteUi() {
+    el.musicMuteGlyph.innerHTML = radio.musicMuted ? "&#128263;" : "&#128266;";
+    el.musicMute.classList.toggle("muted", radio.musicMuted);
+    const label = radio.musicMuted ? "Unmute radio" : "Mute radio";
+    el.musicMute.setAttribute("aria-label", label);
+    el.musicMute.title = label;
+  }
+
+  function updatePlayPauseUi() {
+    const playing = !radio.engaged || !radio.paused;
+    el.musicPlayPause.innerHTML = playing ? "&#9208;" : "&#9654;";
+    const label = playing ? "Pause" : "Play";
+    el.musicPlayPause.setAttribute("aria-label", label);
+    el.musicPlayPause.title = label;
+  }
+
+  function tickMusicUi() {
+    if (!radio.ready) return;
+    let offset, dur;
+    if (!radio.engaged) {
+      const live = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
+      if (live.index !== radio.pos) { radio.pos = live.index; updateMusicMeta(); }
+      offset = live.offset;
+      dur = radio.durations[radio.pos] || 0;
+    } else {
+      const a = radio.audio;
+      offset = a && isFinite(a.currentTime) ? a.currentTime : 0;
+      dur = a && isFinite(a.duration) && a.duration > 0 ? a.duration : (radio.durations[radio.pos] || 0);
+    }
+    const frac = dur > 0 ? Math.min(1, offset / dur) : 0;
+    el.musicProgress.style.transform = "scaleX(" + frac + ")";
+    el.musicCur.textContent = RADIO.formatTime(offset);
+    el.musicDur.textContent = RADIO.formatTime(dur);
+    const pct = Math.round(frac * 100);
+    if (pct !== radio.lastPct) {
+      radio.lastPct = pct;
+      el.musicSeek.setAttribute("aria-valuenow", String(pct));
+      el.musicSeek.setAttribute("aria-valuetext", RADIO.formatTime(offset) + " of " + RADIO.formatTime(dur));
+    }
+  }
+
+  // ---------- Album download (zip) ----------
+  function compressionFor(file) {
+    const ext = (file.split(".").pop() || "").toLowerCase();
+    // Already-compressed formats: store as-is. Uncompressed (wav/aiff): deflate.
+    return (ext === "wav" || ext === "aif" || ext === "aiff") ? "DEFLATE" : "STORE";
+  }
+
+  function slug(name) {
+    return String(name || "").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "") || "album";
+  }
+
+  function setMusicStatus(msg, isError) {
+    el.musicStatus.textContent = msg || "";
+    el.musicStatus.classList.toggle("error", !!isError);
+    clearTimeout(radio.statusTimer);
+    if (msg && !isError) {
+      radio.statusTimer = setTimeout(() => { el.musicStatus.textContent = ""; }, 4000);
+    }
+  }
+
+  function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  // Shared zip-and-download for the album and the voice-line pack. Sequential
+  // fetch keeps the memory peak down; a non-200 fails loud (visible status, then
+  // both buttons re-enabled for a retry). Both download buttons disable for the
+  // duration of any download so the two packs can't be built concurrently.
+  async function downloadZip(files, urlFor, zipName, noun) {
+    if (radio.downloading) return;
+    if (typeof JSZip === "undefined") {
+      console.error("Download: JSZip not loaded.");
+      setMusicStatus("Zip library unavailable.", true);
+      return;
+    }
+    if (!files || files.length === 0) {
+      setMusicStatus("Nothing to download yet.", true);
+      return;
+    }
+    radio.downloading = true;
+    el.musicDownload.disabled = true;
+    if (el.voiceDownload) el.voiceDownload.disabled = true;
+    try {
+      const zip = new JSZip();
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        setMusicStatus("Adding " + (i + 1) + "/" + files.length + "...", false);
+        const res = await fetch(urlFor(f.file));
+        if (!res.ok) throw new Error(f.file + " (HTTP " + res.status + ")");
+        const buf = await res.arrayBuffer();
+        zip.file(f.file, buf, { compression: compressionFor(f.file) });
+      }
+      const blob = await zip.generateAsync({ type: "blob" }, (m) => {
+        setMusicStatus("Zipping " + Math.round(m.percent) + "%...", false);
+      });
+      triggerDownload(blob, zipName);
+      setMusicStatus("Saved " + files.length + " " + noun + (files.length === 1 ? "" : "s") + ".", false);
+    } catch (e) {
+      console.error("Download failed:", e);
+      setMusicStatus("Download failed: " + e.message, true);
+    } finally {
+      radio.downloading = false;
+      el.musicDownload.disabled = false;
+      if (el.voiceDownload) el.voiceDownload.disabled = false;
+    }
+  }
+
+  function downloadAlbum() {
+    downloadZip(radio.tracks, trackUrl, slug(radio.album) + ".zip", "track");
+  }
+
+  function downloadVoiceLines() {
+    downloadZip(voice.clips, voiceUrl, slug(radio.album) + "_Voice_Lines.zip", "voice line");
+  }
+
+  // ---------- Voice lines ----------
+  // At each round's countdown a voice clip plays, picked random-without-repeat
+  // from a shuffle bag. Obeys the game's sound toggle; hearing clips earns
+  // achievements. Clips are SERIALIZED through a queue -- if a new one is
+  // triggered while another is still talking, it waits its turn instead of
+  // talking over it, so every line is heard clearly.
+  const voice = { clips: [], bag: [], last: "", queue: [], current: null };
+
+  async function bootVoice() {
+    try {
+      const res = await fetch("assets/voicelines/manifest.json", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const manifest = await res.json();
+      voice.clips = (manifest && Array.isArray(manifest.clips))
+        ? manifest.clips.filter((c) => c && c.file) : [];
+      if (voice.clips.length === 0) console.info("Voice lines: manifest empty -- none will play.");
+    } catch (e) {
+      console.info("Voice lines: no manifest (" + e.message + ") -- none will play.");
+    }
+    // The "download all voice lines" button lives under the album button; it
+    // only appears once we know there are clips to pack.
+    if (el.voiceDownload) {
+      el.voiceDownload.addEventListener("click", downloadVoiceLines);
+      show(el.voiceDownload, voice.clips.length > 0);
+    }
+    evalAndApply(true);   // reconcile achievement totals now clip count is known
+  }
+
+  function drawVoiceClip() {
+    if (voice.bag.length === 0) {
+      const pool = voice.clips.slice();
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+      }
+      // Avoid an immediate repeat across bag refills.
+      if (pool.length > 1 && pool[pool.length - 1].file === voice.last) {
+        const tmp = pool[0]; pool[0] = pool[pool.length - 1]; pool[pool.length - 1] = tmp;
+      }
+      voice.bag = pool;
+    }
+    return voice.bag.pop();
+  }
+
+  function playVoiceLine() {
+    if (!voice.clips.length || muted) return;   // obeys the game's sound toggle
+    const clip = drawVoiceClip();
+    if (!clip) return;
+    voice.last = clip.file;
+    voice.queue.push(clip);
+    playNextVoice();
+  }
+
+  // Pull the next queued clip only when nothing is currently playing, so lines
+  // never overlap. On end/error we advance the queue; an "ended" also credits
+  // the achievement. The `voice.current !== a` guard makes advancing idempotent
+  // if both an error and the play() rejection fire for the same clip.
+  function playNextVoice() {
+    if (voice.current || !voice.queue.length) return;
+    const clip = voice.queue.shift();
+    const a = new Audio(voiceUrl(clip.file));
+    voice.current = a;
+    const advance = () => {
+      if (voice.current !== a) return;
+      voice.current = null;
+      playNextVoice();
+    };
+    a.addEventListener("ended", () => { markVoiceHeard(clip.file); advance(); });
+    a.addEventListener("error", advance);
+    a.play().catch(advance);
+  }
+
+  // ---------- Achievements ----------
+  let listenedFiles = new Set();
+  let heardFiles = new Set();
+  let unlockedIds = [];
+
+  function loadSet(key) {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) || "[]");
+      return new Set(Array.isArray(v) ? v : []);
+    } catch (_) { return new Set(); }
+  }
+  function saveSet(key, set) {
+    try { localStorage.setItem(key, JSON.stringify([...set])); } catch (_) {}
+  }
+  function loadArray(key) {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch (_) { return []; }
+  }
+  function saveArray(key, arr) {
+    try { localStorage.setItem(key, JSON.stringify(arr)); } catch (_) {}
+  }
+
+  function bootAchievements() {
+    if (!ACH) { console.error("Achievements: src/js/achievements.js failed to load."); return; }
+    listenedFiles = loadSet(LISTENED_KEY);
+    heardFiles = loadSet(HEARD_KEY);
+    unlockedIds = loadArray(ACH_KEY);
+    el.btnAch.addEventListener("click", () => { sfxClick(); openAch(); });
+    el.btnAchClose.addEventListener("click", () => { sfxClick(); closeAch(); });
+    renderAchList();
+    updateTrophyBadge();
+  }
+
+  function markSongListened(file) {
+    if (!file || listenedFiles.has(file)) return;
+    listenedFiles.add(file);
+    saveSet(LISTENED_KEY, listenedFiles);
+    evalAndApply(false);
+  }
+
+  function markVoiceHeard(file) {
+    if (!file || heardFiles.has(file)) return;
+    heardFiles.add(file);
+    saveSet(HEARD_KEY, heardFiles);
+    evalAndApply(false);
+  }
+
+  // Recompute unlocks; add any new ones. Fresh unlocks toast unless `silent`
+  // (used on load to reconcile prior progress without replaying old toasts).
+  function evalAndApply(silent) {
+    if (!ACH) return;
+    const current = ACH.evaluateUnlocks(
+      listenedFiles.size, radio.tracks.length,
+      heardFiles.size, voice.clips.length
+    );
+    const fresh = ACH.newlyUnlocked(unlockedIds, current);
+    if (fresh.length) {
+      fresh.forEach((id) => unlockedIds.push(id));
+      saveArray(ACH_KEY, unlockedIds);
+      if (!silent) fresh.forEach(showToast);
+    }
+    renderAchList();
+    updateTrophyBadge();
+  }
+
+  function showToast(id) {
+    const def = ACH.get(id);
+    if (!def) return;
+    const div = document.createElement("div");
+    div.className = "toast";
+    const badge = document.createElement("span");
+    badge.className = "toast-badge";
+    badge.textContent = "🏆"; // trophy
+    const text = document.createElement("span");
+    text.className = "toast-text";
+    const eye = document.createElement("span");
+    eye.className = "toast-eyebrow";
+    eye.textContent = "Achievement unlocked";
+    const name = document.createElement("span");
+    name.className = "toast-name";
+    name.textContent = def.title;
+    text.append(eye, name);
+    div.append(badge, text);
+    el.toastWrap.appendChild(div);
+    sfxUnlock();
+    setTimeout(() => {
+      div.classList.add("out");
+      setTimeout(() => div.remove(), 420);
+    }, 3200);
+  }
+
+  function renderAchList() {
+    if (!ACH || !el.achList) return;
+    el.achList.textContent = "";
+    ACH.ACHIEVEMENTS.forEach((def) => {
+      const unlocked = unlockedIds.indexOf(def.id) >= 0;
+      const li = document.createElement("li");
+      li.className = "ach-item" + (unlocked ? " unlocked" : "");
+      const badge = document.createElement("span");
+      badge.className = "ach-badge";
+      badge.textContent = unlocked ? "🏆" : "🔒"; // trophy / lock
+      const text = document.createElement("span");
+      text.className = "ach-text";
+      const name = document.createElement("span");
+      name.className = "ach-name";
+      name.textContent = def.title;
+      const desc = document.createElement("span");
+      desc.className = "ach-desc";
+      desc.textContent = def.desc;
+      text.append(name, desc);
+      li.append(badge, text);
+      el.achList.appendChild(li);
+    });
+    el.achProgress.textContent =
+      listenedFiles.size + "/" + radio.tracks.length + " songs · " +
+      heardFiles.size + "/" + voice.clips.length + " voice lines";
+  }
+
+  function updateTrophyBadge() {
+    if (!el.btnAch) return;
+    const total = ACH ? ACH.ACHIEVEMENTS.length : 0;
+    el.btnAch.title = "Achievements (" + unlockedIds.length + "/" + total + ")";
+    el.btnAch.classList.toggle("has-unlocks", unlockedIds.length > 0);
+  }
+
+  function openAch() { renderAchList(); show(el.screenAch, true); }
+  function closeAch() { show(el.screenAch, false); }
+
+  // ---------- Online leaderboard ----------
+  // A persistent top-100 board served by scripts/dev_server.py (data/leaderboard.json).
+  // Ranking math is pure in src/js/leaderboard.js (LBOARD), mirrored authoritatively
+  // by the Python store. Each browser carries an anonymous id so it holds ONE row at
+  // its best score -- a lightweight identity (per browser profile, not per person; no
+  // accounts), enough to stop one player flooding the board. The score is what
+  // competes, so a GOD GAMER still ranks by their number. Soft-guarded like the radio:
+  // a missing module or an unreachable server hides the feature, never breaks the game.
+  let lbEntries = [];        // last-known board (newest fetch or POST response)
+  let lbClientId = null;     // this browser's anonymous id
+  let lbPendingScore = 0;    // score awaiting submission on the game-over screen
+  let lbPendingGod = false;
+  let lbSubmitting = false;  // guard against double-submit
+
+  function getClientId() {
+    let id = null;
+    try { id = localStorage.getItem(CLIENT_KEY); } catch (_) {}
+    if (!id) {
+      id = (window.crypto && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : "c-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+      try { localStorage.setItem(CLIENT_KEY, id); } catch (_) {}
+    }
+    return id;
+  }
+
+  function bootLeaderboard() {
+    if (!LBOARD) {
+      console.error("Leaderboard: src/js/leaderboard.js failed to load.");
+      if (el.btnLeaderboard) show(el.btnLeaderboard, false);
+      if (el.btnOverLeaderboard) show(el.btnOverLeaderboard, false);
+      return;
+    }
+    lbClientId = getClientId();
+    if (el.btnLeaderboard) el.btnLeaderboard.addEventListener("click", () => { sfxClick(); openLeaderboard(); });
+    if (el.btnOverLeaderboard) el.btnOverLeaderboard.addEventListener("click", () => { sfxClick(); openLeaderboard(); });
+    el.btnLbClose.addEventListener("click", () => { sfxClick(); closeLeaderboard(); });
+    el.btnLbSubmit.addEventListener("click", () => { sfxClick(); submitInitials(); });
+    el.lbInitials.addEventListener("input", () => {
+      const cleaned = LBOARD.sanitizeInitials(el.lbInitials.value);
+      if (el.lbInitials.value !== cleaned) el.lbInitials.value = cleaned;
+    });
+    el.lbInitials.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); sfxClick(); submitInitials(); }
+    });
+    try {
+      const saved = localStorage.getItem(INITIALS_KEY);
+      if (saved) el.lbInitials.value = LBOARD.sanitizeInitials(saved);
+    } catch (_) {}
+    // Warm the cache so the panel and the game-over gate respond instantly.
+    fetchLeaderboard();
+  }
+
+  async function fetchLeaderboard() {
+    if (!LBOARD) return null;
+    try {
+      const res = await fetch(LB_API, { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      lbEntries = Array.isArray(data.entries) ? data.entries : [];
+      return lbEntries;
+    } catch (err) {
+      console.error("Leaderboard: could not load the board.", err);
+      return null;
+    }
+  }
+
+  function fmtScoreLB(n) {
+    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+
+  // entries: array of rows, [] for an empty board, or null for "offline/error".
+  function renderLeaderboard(entries, highlightTs) {
+    if (!el.lbList) return;
+    el.lbList.textContent = "";
+    if (entries == null) {
+      const li = document.createElement("li");
+      li.className = "lb-msg lb-error";
+      li.textContent = "Leaderboard offline -- start the server to compete.";
+      el.lbList.appendChild(li);
+      return;
+    }
+    if (entries.length === 0) {
+      const li = document.createElement("li");
+      li.className = "lb-msg";
+      li.textContent = "No scores yet -- be the first farty gang legend.";
+      el.lbList.appendChild(li);
+      return;
+    }
+    entries.forEach((e, i) => {
+      const li = document.createElement("li");
+      li.className = "lb-row";
+      const mine = (highlightTs != null && e.ts === highlightTs) ||
+                   (lbClientId && e.client_id === lbClientId);
+      if (mine) li.classList.add("is-me");
+      const rank = document.createElement("span");
+      rank.className = "lb-rank";
+      rank.textContent = "#" + (i + 1);
+      const ini = document.createElement("span");
+      ini.className = "lb-initials-cell";
+      ini.textContent = e.initials;
+      const badge = document.createElement("span");
+      badge.className = "lb-badge" + (e.god ? " is-god" : "");
+      if (e.god) { badge.textContent = "GOD"; badge.title = "GOD GAMER"; }
+      const score = document.createElement("span");
+      score.className = "lb-score";
+      score.textContent = fmtScoreLB(e.score);
+      li.append(rank, ini, badge, score);
+      el.lbList.appendChild(li);
+    });
+  }
+
+  function openLeaderboard(highlightTs) {
+    show(el.screenLeaderboard, true);
+    if (lbEntries.length) {
+      renderLeaderboard(lbEntries, highlightTs);   // instant from cache
+    } else {
+      el.lbList.textContent = "";
+      const li = document.createElement("li");
+      li.className = "lb-msg";
+      li.textContent = "Loading...";
+      el.lbList.appendChild(li);
+    }
+    fetchLeaderboard().then((entries) => {
+      if (el.screenLeaderboard.classList.contains("hidden")) return;  // closed meanwhile
+      if (entries != null) renderLeaderboard(entries, highlightTs);
+      else if (!lbEntries.length) renderLeaderboard(null, highlightTs);
+    });
+  }
+
+  function closeLeaderboard() { show(el.screenLeaderboard, false); }
+
+  function setLbStatus(msg, isError) {
+    if (!el.lbStatus) return;
+    el.lbStatus.textContent = msg || "";
+    el.lbStatus.classList.toggle("error", !!isError);
+  }
+
+  function resetLbEntry() {
+    if (el.lbEntry) show(el.lbEntry, false);
+    if (el.lbEntryForm) show(el.lbEntryForm, true);
+    lbSubmitting = false;
+    if (el.btnLbSubmit) el.btnLbSubmit.disabled = false;
+    setLbStatus("", false);
+  }
+
+  // 1-based position this run would take, with the player's own stale row set aside.
+  function lbRankForDisplay(entries, score) {
+    const others = (entries || []).filter((e) => !(lbClientId && e.client_id === lbClientId));
+    return LBOARD.rankOf(others, score);
+  }
+
+  function maybePromptLeaderboard(score, isGod) {
+    resetLbEntry();
+    if (!LBOARD) return;
+    lbPendingScore = score;
+    lbPendingGod = isGod;
+    show(el.lbEntry, true);
+    show(el.lbEntryForm, false);
+    setLbStatus("Checking the leaderboard...", false);
+    fetchLeaderboard().then((entries) => {
+      if (game.state !== "gameOver") return;   // player already moved on
+      if (entries == null) {
+        el.lbEntryPrompt.textContent = "Leaderboard offline -- couldn't reach the server.";
+        setLbStatus("", false);
+        return;
+      }
+      if (LBOARD.qualifiesForClient(entries, score, lbClientId, LBOARD.MAX_ENTRIES)) {
+        const rank = lbRankForDisplay(entries, score);
+        el.lbEntryPrompt.textContent = "You cracked the Top 100 -- projected #" + rank + "! Enter your initials:";
+        show(el.lbEntryForm, true);
+        setLbStatus("", false);
+        try { el.lbInitials.focus(); el.lbInitials.select(); } catch (_) {}
+      } else {
+        const existing = LBOARD.findByClient(entries, lbClientId);
+        el.lbEntryPrompt.textContent = existing
+          ? "That run didn't beat your best (" + fmtScoreLB(existing.score) + "). Your spot stands."
+          : "So close -- that score didn't crack the Top 100.";
+        setLbStatus("", false);
+      }
+    });
+  }
+
+  async function submitInitials() {
+    if (!LBOARD || lbSubmitting) return;
+    const initials = LBOARD.sanitizeInitials(el.lbInitials.value);
+    if (!LBOARD.validInitials(initials)) {
+      setLbStatus("Enter three letters (A-Z).", true);
+      try { el.lbInitials.focus(); } catch (_) {}
+      return;
+    }
+    lbSubmitting = true;
+    el.btnLbSubmit.disabled = true;
+    setLbStatus("Saving...", false);
+    try { localStorage.setItem(INITIALS_KEY, initials); } catch (_) {}
+    try {
+      const res = await fetch(LB_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ initials, score: lbPendingScore, god: lbPendingGod, client_id: lbClientId }),
+      });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
+      lbEntries = Array.isArray(data.entries) ? data.entries : lbEntries;
+      show(el.lbEntryForm, false);
+      setLbStatus(
+        data.improved === false
+          ? "Your best still stands -- #" + data.rank + "."
+          : "You're on the board at #" + data.rank + "!",
+        false
+      );
+      sfxUnlock();
+      openLeaderboard(data.entry && data.entry.ts);
+    } catch (err) {
+      console.error("Leaderboard: submit failed.", err);
+      setLbStatus("Couldn't save -- check the connection and try again.", true);
+      el.btnLbSubmit.disabled = false;   // fail loud, allow retry
+    } finally {
+      lbSubmitting = false;
+    }
   }
 
   // ---------- Boot ----------
@@ -744,9 +2534,14 @@
     try { game.best = parseInt(localStorage.getItem(BEST_KEY), 10) || 0; } catch (_) {}
     refreshMuteUI();
     updateHud();
+    bootAchievements();
+    bootLeaderboard();
+    bootVoice();
+    bootMusic();
     loadAssets().then(() => {
       game.state = "start";
       parkWig();
+      if (DEV_PINBALL || DEV_BLACKJACK) startGame();   // TEMP: auto-enter a finale phase for tuning
     });
     requestAnimationFrame(frame);
   }

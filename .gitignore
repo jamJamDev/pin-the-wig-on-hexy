@@ -1,2 +1,15 @@
 # macOS
 .DS_Store
+
+# Throwaway local audio used only for verification -- never committed.
+# (Real songs/voice lines you add to these folders ARE tracked normally.)
+assets/music/__test_*
+assets/voicelines/__test_*
+
+# Runtime leaderboard store -- per-deployment server state, not source.
+data/leaderboard.json
+data/leaderboard.json.tmp
+
+# Python bytecode cache (generated when running the leaderboard store tests).
+__pycache__/
+*.pyc

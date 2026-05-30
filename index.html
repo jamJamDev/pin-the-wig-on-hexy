@@ -4,16 +4,18 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#010101" />
-<title>Pin the Wig on Hexy</title>
+<title>A True Freudian Experience</title>
+<link rel="icon" type="image/png" href="assets/hexy_logo_no_bg.png" />
+<link rel="apple-touch-icon" href="assets/hexy_logo_no_bg.png" />
 <link rel="stylesheet" href="src/css/styles.css" />
 </head>
 <body>
 <div id="app">
-  <canvas id="stage" aria-label="Pin the Wig on Hexy game stage" role="img"></canvas>
+  <canvas id="stage" aria-label="A True Freudian Experience game stage" role="img"></canvas>
 
   <header id="hud" class="hud hidden" aria-hidden="true">
     <div class="hud-cell">
-      <span class="hud-label">Round</span>
+      <span id="hud-round-label" class="hud-label">Round</span>
       <span id="hud-round" class="hud-value">1</span>
     </div>
     <div class="hud-cell hud-score">
@@ -32,10 +34,23 @@
     </button>
   </header>
 
+  <button id="btn-achievements" class="icon-btn corner-btn" type="button" title="Achievements" aria-label="Achievements">&#127942;</button>
+
+  <div id="countdown" class="countdown hidden" aria-hidden="true">
+    <span id="countdown-num" class="countdown-num"></span>
+  </div>
+
   <section id="screen-start" class="overlay">
     <img id="start-logo" src="assets/hexy_logo_no_bg.png" alt="" aria-hidden="true" />
     <div class="panel">
-      <h1 class="title">Pin the Wig<span class="title-sub">on&nbsp;Hexy</span></h1>
+      <div class="game-title" role="img" aria-label="Pin the Wig on Hexy">
+        <span class="gt-word"><span class="gt-letter gt-c1" aria-hidden="true">P</span><span class="gt-letter gt-c2" aria-hidden="true">i</span><span class="gt-letter gt-c3" aria-hidden="true">n</span></span>
+        <span class="gt-word"><span class="gt-letter gt-c4" aria-hidden="true">t</span><span class="gt-letter gt-c5" aria-hidden="true">h</span><span class="gt-letter gt-c6" aria-hidden="true">e</span></span>
+        <span class="gt-word"><span class="gt-letter gt-c7" aria-hidden="true">W</span><span class="gt-letter gt-c1" aria-hidden="true">i</span><span class="gt-letter gt-c2" aria-hidden="true">g</span></span>
+        <span class="gt-word"><span class="gt-letter gt-c3" aria-hidden="true">o</span><span class="gt-letter gt-c4" aria-hidden="true">n</span></span>
+        <span class="gt-word"><span class="gt-letter gt-c5" aria-hidden="true">H</span><span class="gt-letter gt-c6" aria-hidden="true">e</span><span class="gt-letter gt-c7" aria-hidden="true">x</span><span class="gt-letter gt-c1" aria-hidden="true">y</span></span>
+      </div>
+      <h1 class="title">A True Freudian<span class="title-sub">Experience</span></h1>
       <p class="tagline">Welcome, farty gang! He's bald and he won't hold still, slap that wig on his head!</p>
       <ol class="how">
         <li><b>Press &amp; hold</b> anywhere to grab the wig.</li>
@@ -44,6 +59,20 @@
         <li>Every round piles on a new <b>movement twist</b> &mdash; ten rounds, and they stack into chaos. Best accuracy wins.</li>
       </ol>
       <button id="btn-start" class="btn-primary" type="button">Start</button>
+      <button id="btn-leaderboard" class="btn-secondary lb-open-btn" type="button">&#127942; Leaderboard</button>
+      <p class="contract">
+        <strong>Gamer Title Forfeiture &amp; Waiver Agreement.</strong>
+        By pressing <b>START</b>, the undersigned (&ldquo;the Player&rdquo;) acknowledges and agrees
+        that this is an extremely easy game which any gamer of medium skill or above can complete at
+        100% Perfect without difficulty. Should the Player fail to complete the game on Perfect, the
+        Player hereby irrevocably waives, relinquishes, and forfeits, in perpetuity and throughout the
+        known and unknown universe, any and all rights, titles, claims, and honorifics to the
+        designation &ldquo;God&nbsp;Gamer,&rdquo; &ldquo;Good&nbsp;Gamer,&rdquo; or any cognate,
+        derivative, or related title. This is a legally binding contract. Any breach &mdash; including,
+        without limitation, referring to oneself as a God&nbsp;Gamer or Good&nbsp;Gamer &mdash; may
+        result in legal action up to and including suit for damages. Pressing START constitutes
+        acceptance of these terms.
+      </p>
     </div>
   </section>
 
@@ -56,22 +85,142 @@
     </div>
   </section>
 
+  <section id="screen-pin-intro" class="overlay hidden">
+    <div class="panel panel-flash">
+      <p class="pin-eyebrow">Bonus Pinball &middot; Table <span id="pin-table-n">1</span> / 5</p>
+      <h2 id="pin-table-name" class="round-headline">Warm-Up Wiggle</h2>
+      <p id="pin-table-hint" class="round-detail"></p>
+      <p class="pin-goal">Flip the wig into the cup on Hexy's head &mdash; <b>5 pins</b> to win. <b>3 balls</b> per table.</p>
+      <p class="pin-controls"><b>&larr; / A</b> &amp; <b>&rarr; / D</b> (or tap the screen sides) work the flippers. <b>Hold Space</b> (or press the lane) to launch.</p>
+      <button id="btn-pin-start" class="btn-primary" type="button">Launch it</button>
+    </div>
+  </section>
+
+  <div id="pin-banner" class="pin-banner hidden" aria-hidden="true">
+    <span id="pin-banner-text" class="pin-banner-text"></span>
+    <span id="pin-banner-pips" class="pin-banner-pips"></span>
+  </div>
+
+  <section id="screen-blackjack" class="overlay hidden">
+    <div class="panel bj-panel">
+      <p class="pin-eyebrow">Final Boss &middot; Beat The True God Gamer at Blackjack</p>
+      <h2 class="round-headline">God Gamer Showdown</h2>
+      <p class="bj-sub">Win <b>4 of 5</b> hands to be crowned. You can afford one loss &mdash; a <b>second loss ends your run</b>. Dealer stands on 17; pushes re-deal.</p>
+      <div class="bj-score" aria-hidden="true">
+        <span class="bj-tally bj-tally-win">Wins <span id="bj-pips-win" class="bj-pips"></span></span>
+        <span class="bj-tally bj-tally-loss">Losses <span id="bj-pips-loss" class="bj-pips"></span></span>
+      </div>
+
+      <div class="bj-felt">
+        <div class="bj-seat">
+          <span class="bj-seat-label">The True God Gamer <span class="bj-seat-sub">Dealer</span></span>
+          <div id="bj-dealer-cards" class="bj-cards"></div>
+          <span id="bj-dealer-total" class="bj-total"></span>
+        </div>
+        <div class="bj-seat">
+          <span class="bj-seat-label">You</span>
+          <div id="bj-player-cards" class="bj-cards"></div>
+          <span id="bj-player-total" class="bj-total"></span>
+        </div>
+      </div>
+
+      <p id="bj-result" class="bj-result"></p>
+      <div class="bj-actions">
+        <button id="btn-bj-hit" class="btn-primary bj-btn" type="button">Hit</button>
+        <button id="btn-bj-stand" class="btn-primary bj-btn bj-btn-ghost" type="button">Stand</button>
+        <button id="btn-bj-next" class="btn-primary bj-btn hidden" type="button">Next hand</button>
+      </div>
+    </div>
+  </section>
+
   <section id="screen-over" class="overlay hidden">
     <div class="panel">
       <h2 class="title small">Game Over</h2>
+      <div class="final-rank-wrap">
+        <span class="final-rank-label">Rank</span>
+        <div id="final-rank" class="final-rank">&mdash;</div>
+      </div>
       <div class="final-grid">
         <div><span class="final-num" id="final-score">0</span><span class="final-cap">Score</span></div>
         <div><span class="final-num" id="final-acc">0%</span><span class="final-cap">Accuracy</span></div>
         <div><span class="final-num" id="final-best-round">0</span><span class="final-cap">Best Round</span></div>
+        <div id="final-pin-cell" class="hidden"><span class="final-num" id="final-pin-bonus">+0</span><span class="final-cap">Pinball</span></div>
+        <div id="final-bj-cell" class="hidden"><span class="final-num" id="final-bj-bonus">+0</span><span class="final-cap">Blackjack</span></div>
       </div>
+      <p id="final-wizard" class="final-wizard hidden">&#9889; PINBALL WIZARD</p>
       <p id="final-verdict" class="final-verdict"></p>
+      <p id="final-notgod" class="final-notgod hidden">You are <span class="final-notgod-no">NOT</span> a God Gamer</p>
       <p id="final-record" class="final-record hidden">&#11088; New personal best!</p>
+      <a id="final-prize" class="final-prize hidden" href="https://www.youtube.com/watch?v=wscQpkcwgNU" target="_blank" rel="noopener noreferrer">&#127873; Click here for your prize &#127873;</a>
+      <div id="lb-entry" class="lb-entry hidden">
+        <p id="lb-entry-prompt" class="lb-entry-prompt"></p>
+        <div id="lb-entry-form" class="lb-entry-form">
+          <input id="lb-initials" class="lb-initials" type="text" maxlength="3"
+                 autocomplete="off" autocapitalize="characters" spellcheck="false"
+                 aria-label="Your three-letter initials" placeholder="AAA" />
+          <button id="btn-lb-submit" class="btn-primary lb-submit" type="button">Save</button>
+        </div>
+        <p id="lb-status" class="lb-status" role="status" aria-live="polite"></p>
+      </div>
       <button id="btn-again" class="btn-primary" type="button">Play Again</button>
+      <button id="btn-over-leaderboard" class="btn-secondary lb-open-btn" type="button">&#127942; Leaderboard</button>
     </div>
   </section>
+
+  <section id="screen-achievements" class="overlay hidden">
+    <div class="panel ach-panel">
+      <h2 class="title small">Achievements</h2>
+      <p id="ach-progress" class="ach-progress"></p>
+      <ul id="ach-list" class="ach-list"></ul>
+      <button id="btn-ach-close" class="btn-primary" type="button">Close</button>
+    </div>
+  </section>
+
+  <section id="screen-leaderboard" class="overlay hidden">
+    <div class="panel lb-panel">
+      <h2 class="title small">Leaderboard</h2>
+      <p class="lb-sub">Top 100 farty gang &mdash; your best score holds your spot.</p>
+      <ol id="lb-list" class="lb-list"></ol>
+      <button id="btn-lb-close" class="btn-primary" type="button">Close</button>
+    </div>
+  </section>
+
+  <section id="music" class="music hidden" aria-label="Hexy Radio player">
+    <div class="music-head">
+      <span class="music-eyebrow">&#9835; Hexy Radio</span>
+      <span id="music-title" class="music-title">&mdash;</span>
+    </div>
+    <div id="music-seek" class="music-seek" role="slider" tabindex="0" aria-label="Seek track position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" title="Click or drag to seek"><div id="music-progress" class="music-progress"></div></div>
+    <div class="music-times" aria-hidden="true">
+      <span id="music-cur">0:00</span>
+      <span id="music-dur">0:00</span>
+    </div>
+    <div class="music-controls">
+      <button id="music-prev" class="icon-btn" type="button" title="Previous" aria-label="Previous track">&#9198;</button>
+      <button id="music-playpause" class="icon-btn" type="button" title="Pause" aria-label="Pause">&#9208;</button>
+      <button id="music-next" class="icon-btn" type="button" title="Next" aria-label="Next track">&#9197;</button>
+      <button id="music-mute" class="icon-btn music-cta muted" type="button" title="Unmute radio" aria-label="Unmute radio"><span id="music-mute-glyph">&#128263;</span></button>
+    </div>
+    <div class="music-volume">
+      <span class="music-vol-icon" aria-hidden="true">&#128266;</span>
+      <input id="music-vol" class="music-vol-slider" type="range" min="0" max="1" step="0.01" value="0.5" aria-label="Music volume" title="Music volume" />
+    </div>
+    <button id="music-download" class="music-download" type="button">&#11015;&#65039; Download the new album &lsquo;Drunk Boy Parade&rsquo; for free</button>
+    <button id="voice-download" class="music-download hidden" type="button">&#127908; Download all the voice lines</button>
+    <p id="music-status" class="music-status" role="status" aria-live="polite"></p>
+  </section>
+
+  <div id="toast-wrap" class="toast-wrap" aria-live="polite"></div>
 </div>
 
 <script src="src/js/modifiers.js" defer></script>
+<script src="src/js/radio.js" defer></script>
+<script src="src/js/achievements.js" defer></script>
+<script src="src/js/ranks.js" defer></script>
+<script src="src/js/leaderboard.js" defer></script>
+<script src="src/js/pinball.js" defer></script>
+<script src="src/js/blackjack.js" defer></script>
+<script src="src/js/jszip.min.js" defer></script>
 <script src="src/js/game.js" defer></script>
 </body>
 </html>

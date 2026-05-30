@@ -8,5 +8,15 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "vendoredDependencies": {
+    "jszip": {
+      "version": "3.10.1",
+      "source": "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js",
+      "sha256": "acc7e41455a80765b5fd9c7ee1b8078a6d160bbbca455aeae854de65c947d59e",
+      "path": "src/js/jszip.min.js",
+      "license": "MIT",
+      "usedBy": "Download album button (src/js/game.js)"
+    }
   }
 }
