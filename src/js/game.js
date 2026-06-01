@@ -26,6 +26,7 @@
   const LB_API = "api/leaderboard";        // same-origin; served by scripts/dev_server.py
   const DEFAULT_MUSIC_VOL = 0.5;   // radio starts at half volume
   const RADIO_ANCHOR_MS = 0;   // Unix epoch -- shared anchor so every visitor is in sync
+  const LIVE_DRIFT_TOLERANCE = 2.0;   // seconds of slack before playback counts as "off air"
   const PREV_RESTART_SEC = 2;  // "prev" restarts the current track if this far in
   const COUNTDOWN_SECONDS = 3; // 3-2-1 at each round start; a voice line plays over it
 
@@ -182,6 +183,7 @@
     musicProgress: document.getElementById("music-progress"),
     musicCur: document.getElementById("music-cur"),
     musicDur: document.getElementById("music-dur"),
+    musicLive: document.getElementById("music-live"),
     musicPrev: document.getElementById("music-prev"),
     musicPlayPause: document.getElementById("music-playpause"),
     musicNext: document.getElementById("music-next"),
@@ -2659,6 +2661,7 @@
     statusTimer: 0,
     seeking: false,  // user is dragging the progress bar
     lastPct: -1,     // last aria-valuenow we wrote (avoids per-frame churn)
+    liveShown: -1,   // last on-air state painted (-1 unset / 0 off / 1 on), avoids per-frame churn
     errStreak: 0,    // consecutive unplayable tracks (auto-skip loop guard)
   };
 
@@ -2700,6 +2703,7 @@
     radio.audio.addEventListener("timeupdate", onRadioTime);
     radio.audio.addEventListener("error", onRadioError);
 
+    el.musicLive.addEventListener("click", onMusicLive);
     el.musicPrev.addEventListener("click", onMusicPrev);
     el.musicPlayPause.addEventListener("click", onMusicPlayPause);
     el.musicNext.addEventListener("click", onMusicNext);
@@ -2719,6 +2723,7 @@
     updateMusicMeta();
     updateMuteUi();
     updatePlayPauseUi();
+    updateLiveUi();
     show(el.music, true);
     radio.ready = true;
     reconcileProgress(listenedFiles, LISTENED_KEY, radio.tracks.map((t) => t.file));
@@ -2979,6 +2984,49 @@
     el.musicPlayPause.title = label;
   }
 
+  // Is playback currently locked to the live station? The silent preview tracks
+  // the clock by construction, so it is always live; once engaged, playback is
+  // live only while playing on the live track within tolerance. `lastTime` (the
+  // engine's tracked position, kept current by onRadioTime) is used instead of
+  // raw audio.currentTime so an in-flight track load doesn't read as a drift.
+  function isLive() {
+    if (!radio.engaged) return true;
+    if (radio.paused) return false;
+    return RADIO.isLivePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS, radio.pos, radio.lastTime, LIVE_DRIFT_TOLERANCE);
+  }
+
+  // Snap back to the live broadcast -- like tuning a radio back to the station.
+  // No-op when already on air (engaged + in sync); from the silent preview it
+  // also engages and unmutes so the click is audible.
+  function onMusicLive() {
+    if (radio.engaged && isLive()) { updateLiveUi(); return; }
+    const wasEngaged = radio.engaged;
+    engage();
+    radio.paused = false;
+    if (!wasEngaged) radio.musicMuted = false;
+    const live = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
+    startTrack(live.index, live.offset, { play: true, muted: radio.musicMuted });
+    updateMuteUi();
+    updatePlayPauseUi();
+    updateLiveUi();
+  }
+
+  function updateLiveUi() {
+    const liveNow = isLive();
+    const flag = liveNow ? 1 : 0;
+    if (flag === radio.liveShown) return;   // unchanged -- skip per-frame DOM churn
+    radio.liveShown = flag;
+    el.musicLive.classList.toggle("on-air", liveNow);
+    el.musicLive.classList.toggle("off-air", !liveNow);
+    el.musicLive.innerHTML = '<span class="live-dot" aria-hidden="true"></span>' + (liveNow ? "LIVE" : "GO LIVE");
+    el.musicLive.setAttribute("aria-pressed", liveNow ? "true" : "false");
+    const label = liveNow
+      ? "On air — listening live with everyone"
+      : "Off air — click to jump to the live broadcast";
+    el.musicLive.setAttribute("aria-label", label);
+    el.musicLive.title = label;
+  }
+
   function tickMusicUi() {
     if (!radio.ready) return;
     let offset, dur;
@@ -3002,6 +3050,7 @@
       el.musicSeek.setAttribute("aria-valuenow", String(pct));
       el.musicSeek.setAttribute("aria-valuetext", RADIO.formatTime(offset) + " of " + RADIO.formatTime(dur));
     }
+    updateLiveUi();   // reflect pause / skip / seek / drift back to the on-air light
   }
 
   // ---------- Album download (zip) ----------

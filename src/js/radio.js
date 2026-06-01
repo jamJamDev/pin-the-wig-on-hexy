@@ -122,6 +122,18 @@
     return { index: last, offset: Math.max(0, elapsed - tl.cumulativeStarts[last]) };
   }
 
+  // Is a given (index, offset) the live spot right now, within toleranceSec?
+  // Lets the I/O shell decide whether playback is still "on air" or has drifted
+  // (paused, skipped, seeked, or buffered behind). Tolerance absorbs the small
+  // lag between <audio>.currentTime and the wall clock; a missing/negative
+  // tolerance means an exact match is required.
+  function isLivePosition(nowMs, durations, anchorMs, index, offset, toleranceSec) {
+    var live = livePosition(nowMs, durations, anchorMs);
+    if (live.index !== index) return false;
+    var tol = (typeof toleranceSec === "number" && toleranceSec >= 0) ? toleranceSec : 0;
+    return Math.abs((offset || 0) - live.offset) <= tol;
+  }
+
   function nextIndex(i, n) {
     if (n <= 0) return 0;
     return ((i + 1) % n + n) % n;
@@ -149,6 +161,7 @@
     normalizeDurations: normalizeDurations,
     buildTimeline: buildTimeline,
     livePosition: livePosition,
+    isLivePosition: isLivePosition,
     nextIndex: nextIndex,
     prevIndex: prevIndex,
     formatTime: formatTime,

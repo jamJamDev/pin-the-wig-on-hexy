@@ -101,6 +101,33 @@ test("livePosition works for a single track", () => {
   assert.deepEqual(R.livePosition(145 * 1000, [100], 0), { index: 0, offset: 45 });
 });
 
+test("isLivePosition is true on the live track within tolerance", () => {
+  const durs = [60, 120, 30]; // total 210; at 90s -> {index:1, offset:30}
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 30, 2), true);    // exact
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 31.5, 2), true);  // 1.5s behind
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 28.5, 2), true);  // 1.5s ahead
+});
+
+test("isLivePosition treats the tolerance edge as still live", () => {
+  const durs = [60, 120, 30];
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 32, 2), true);   // exactly 2s diff
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 33, 2), false);  // 3s diff -> drifted
+});
+
+test("isLivePosition is false on the wrong track regardless of offset", () => {
+  const durs = [60, 120, 30];
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 0, 30, 2), false);
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 2, 30, 1000), false);
+});
+
+test("isLivePosition requires an exact match when tolerance is omitted or negative", () => {
+  const durs = [60, 120, 30];
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 30), true);        // exact
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 30.5), false);     // 0.5s off
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 30, -5), true);    // neg tol -> exact
+  assert.equal(R.isLivePosition(90 * 1000, durs, 0, 1, 30.5, -5), false);
+});
+
 test("nextIndex / prevIndex wrap at both ends", () => {
   assert.equal(R.nextIndex(0, 3), 1);
   assert.equal(R.nextIndex(2, 3), 0);

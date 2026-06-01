@@ -944,6 +944,46 @@ html, body {
 }
 .music-controls .icon-btn:hover { background: rgba(255, 255, 255, 0.2); }
 .music-cta { margin-left: auto; }
+/* On-air light: red + pulsing when synced to the live station, dim + clickable
+   ("GO LIVE") when the listener has drifted off (paused/skipped/seeked). */
+.music-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s, transform 0.1s;
+}
+.music-live:active { transform: scale(0.94); }
+.music-live .live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.music-live.on-air {
+  color: var(--accent);
+  background: rgba(254, 0, 0, 0.16);
+  cursor: default;
+}
+.music-live.on-air .live-dot {
+  background: var(--accent);
+  animation: music-pulse 1.6s ease-in-out infinite;
+}
+.music-live.off-air { opacity: 0.55; }
+.music-live.off-air:hover { opacity: 0.9; background: rgba(255, 255, 255, 0.18); }
+.music-live.off-air .live-dot { background: rgba(255, 255, 255, 0.6); }
+.music-live:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Unmute call-to-action: glows/pulses while the radio is still silent. */
 .icon-btn.cta-pulse {
   opacity: 1;
