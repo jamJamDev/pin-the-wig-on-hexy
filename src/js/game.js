@@ -13,6 +13,8 @@
   const DEV_PINBALL = /[?&#]pinball\b/.test(location.search + location.hash);
   const DEV_BLACKJACK = /[?&#]blackjack\b/.test(location.search + location.hash);
   const DEV_SLOTS = /[?&#]slots\b/.test(location.search + location.hash);
+  // "?feedmolly" drops straight into the Feed Molly bonus for tuning.
+  const DEV_FEEDMOLLY = /[?&#]feedmolly\b/.test(location.search + location.hash);
   const BEST_KEY = "ptwoh.best";
   const MUTE_KEY = "ptwoh.muted";
   const LISTENED_KEY = "ptwoh.music.listenedFiles";
@@ -58,6 +60,13 @@
   const SLOT = window.PTWOHSlots;
   if (!SLOT || typeof SLOT.createGame !== "function") {
     throw new Error("Pin the Wig on Hexy: src/js/slots.js failed to load");
+  }
+
+  // "Feed Molly" bonus, mandatory after round 10. Its score folds into the run
+  // total + accuracy denominator, so fail loud if missing (same posture as above).
+  const FEED = window.PTWOHFeedMolly;
+  if (!FEED || typeof FEED.createRun !== "function") {
+    throw new Error("Pin the Wig on Hexy: src/js/feedmolly.js failed to load");
   }
 
   // Non-essential extras -- guarded softly so a missing module never breaks the game.
@@ -129,6 +138,12 @@
     pinBanner: document.getElementById("pin-banner"),
     pinBannerText: document.getElementById("pin-banner-text"),
     pinBannerPips: document.getElementById("pin-banner-pips"),
+    // Feed Molly bonus phase
+    screenFeedIntro: document.getElementById("screen-feed-intro"),
+    feedCanN: document.getElementById("feed-can-n"),
+    feedCanName: document.getElementById("feed-can-name"),
+    feedCanHint: document.getElementById("feed-can-hint"),
+    btnFeedStart: document.getElementById("btn-feed-start"),
     // Blackjack finale
     screenBlackjack: document.getElementById("screen-blackjack"),
     bjPipsWin: document.getElementById("bj-pips-win"),
@@ -236,7 +251,7 @@
   }
 
   // ---------- Assets ----------
-  const sprites = { bald: null, wig: null };
+  const sprites = { bald: null, wig: null, molly: null, paw: null, pawMid: null };
 
   function loadImage(src, timeout = 6000) {
     return new Promise((resolve, reject) => {
@@ -303,9 +318,49 @@
           g.fill();
         })
       ),
-    ]).then(([bald, wig]) => {
+      loadFirst(
+        ["assets/MOLLY.png", "assets/molly.png", "assets/molly.webp", "assets/molly.jpg"],
+        () => fallbackImage(320, 320, (g) => {
+          g.fillStyle = "#1b1b1b";   // fluffy black cat head stand-in
+          g.beginPath(); g.ellipse(160, 175, 120, 110, 0, 0, Math.PI * 2); g.fill();
+          g.beginPath();             // ears
+          g.moveTo(70, 110); g.lineTo(110, 40); g.lineTo(140, 105); g.closePath();
+          g.moveTo(250, 110); g.lineTo(210, 40); g.lineTo(180, 105); g.closePath();
+          g.fill();
+          g.fillStyle = "#8be36b";   // eyes
+          g.beginPath(); g.ellipse(120, 170, 18, 24, 0, 0, Math.PI * 2); g.ellipse(200, 170, 18, 24, 0, 0, Math.PI * 2); g.fill();
+          g.fillStyle = "#0a0a0a";
+          g.beginPath(); g.ellipse(120, 170, 6, 20, 0, 0, Math.PI * 2); g.ellipse(200, 170, 6, 20, 0, 0, Math.PI * 2); g.fill();
+        })
+      ),
+      loadFirst(
+        // Claws point UP in the source art; drawSwipingPaw rotates it to face the can.
+        ["assets/catpaw.png", "assets/paw.png", "assets/catpaw.webp"],
+        () => fallbackImage(200, 260, (g) => {
+          g.fillStyle = "#141414";
+          g.beginPath(); g.ellipse(100, 180, 70, 60, 0, 0, Math.PI * 2); g.fill();   // pad
+          g.fillStyle = "#efe6d2";
+          for (let i = 0; i < 4; i++) {                                              // claws
+            const x = 40 + i * 40;
+            g.beginPath(); g.moveTo(x - 8, 130); g.lineTo(x + 8, 130); g.lineTo(x, 40); g.closePath(); g.fill();
+          }
+        })
+      ),
+      loadFirst(
+        // Shown large when the player fails to open every can -- Molly's verdict.
+        ["assets/pawmiddlefinger.png", "assets/paw_middle.png"],
+        () => fallbackImage(200, 260, (g) => {
+          g.fillStyle = "#141414";
+          g.beginPath(); g.ellipse(100, 190, 70, 60, 0, 0, Math.PI * 2); g.fill();
+          g.fillRect(86, 40, 28, 130);   // a single raised "finger"
+        })
+      ),
+    ]).then(([bald, wig, molly, paw, pawMid]) => {
       sprites.bald = bald;
       sprites.wig = wig;
+      sprites.molly = molly;
+      sprites.paw = paw;
+      sprites.pawMid = pawMid;
       sizeSprites();
     });
   }
@@ -371,6 +426,10 @@
     slotPlayed: false, // did this run reach the slot-machine finale?
     slotBonus: 0,    // slot points banked this run (for the game-over stat)
     slotWon: false,  // did the player reach 2000 credits to clinch GOD GAMER?
+    feed: null,      // FEED.createRun state during the Feed Molly bonus (null otherwise)
+    feedPlayed: false, // did this run enter Feed Molly? (true for every round-10 finisher)
+    feedBonus: 0,    // Feed Molly points banked this run
+    feedCleared: false, // opened all five cans before patience ran out?
   };
 
   const confetti = [];
@@ -609,6 +668,10 @@
     game.slotPlayed = false;
     game.slotBonus = 0;
     game.slotWon = false;
+    game.feed = null;
+    game.feedPlayed = false;
+    game.feedBonus = 0;
+    game.feedCleared = false;
     resetPinInput();
     game.seed = (((Date.now() & 0xffffffff) ^ ((Math.random() * 0xffffffff) | 0)) >>> 0) || 1;
     game.modifierPlan = MOD.buildPlan(game.seed);
@@ -642,6 +705,7 @@
       return;
     }
     if (DEV_PINBALL) { game.round = TOTAL_ROUNDS; startPinball(); return; } // TEMP: jump straight to pinball
+    if (DEV_FEEDMOLLY) { game.round = TOTAL_ROUNDS; startFeedMolly(); return; } // TEMP: jump straight to Feed Molly
     nextRound();
   }
 
@@ -796,12 +860,11 @@
     game.advancing = true;
     show(el.screenRound, false);
     if (game.round >= TOTAL_ROUNDS) {
-      // The pinball finale is the win: only runs that clear the 75% base-score
-      // qualifier earn the attempt. Everyone else drops straight to the
-      // scoreboard, scored on the base game alone -- exactly as it played
-      // before the bonus existed.
-      if (game.score >= PINBALL_UNLOCK) startPinball();
-      else endGame();
+      // Feed Molly is a mandatory comedic beat for everyone who finishes the
+      // ten pin rounds. The pinball-finale qualifier (and the rest of the
+      // gauntlet) is re-checked AFTER it, in finishFeedHandoff() -- Molly's
+      // points count toward that gate.
+      startFeedMolly();
     } else {
       nextRound();
     }
@@ -813,6 +876,7 @@
     el.hud.setAttribute("aria-hidden", "true");
     showCountdown(false);  // in case the run ended straight off a countdown
     game.pin = null;       // bonus phase is over; drop the run state
+    game.feed = null;
     game.advancing = false;
 
     // A run that never unlocked the pinball finale is scored on the base game
@@ -820,6 +884,7 @@
     // the finale is scored out of base + pinball. So a non-qualifier's accuracy
     // is never diluted by points it had no shot at earning.
     const maxScore = TOTAL_ROUNDS * 1000
+      + (game.feedPlayed ? FEED.maxScore() : 0)
       + (game.pinPlayed ? PINBALL.maxScore() : 0)
       + (game.bjPlayed ? BLACKJACK.maxScore() : 0)
       + (game.slotPlayed ? SLOT.maxScore() : 0);
@@ -899,6 +964,316 @@
         color: palette[(Math.random() * palette.length) | 0],
       });
     }
+  }
+
+  // ---------- Feed Molly bonus phase ----------
+  // Mandatory after round 10, before the pinball qualifier. Pure logic lives in
+  // FEED (src/js/feedmolly.js); this is the I/O shell. Flow:
+  //   proceed() [round>=10] -> startFeedMolly() -> feedIntro
+  //   feedIntro --(Open/Space/tap)--> feedPlaying
+  //   feedPlaying --tap opens a can--> feedResult --(lock)--> next can or feedDone
+  //   feedPlaying --patience empties--> feedDone (failed): Molly stalks off
+  //   feedDone --(lock)--> finishFeedHandoff(): score gate -> pinball or scoreboard
+  let feedBannerTimer = 0;
+
+  function startFeedMolly() {
+    game.advancing = false;
+    game.feed = FEED.createRun(game.seed);
+    game.feedPlayed = true;
+    game.feedBonus = 0;
+    game.feedCleared = false;
+    el.hud.classList.remove("hidden");
+    el.hud.setAttribute("aria-hidden", "false");
+    startFeedIntro();
+  }
+
+  function startFeedIntro() {
+    const run = game.feed;
+    game.state = "feedIntro";
+    const can = FEED.activeCan(run);
+    el.feedCanN.textContent = String(run.idx + 1);
+    el.feedCanName.textContent = can.name;
+    el.feedCanHint.textContent = can.hint;
+    updateFeedHud();
+    show(el.screenFeedIntro, true);
+    chord([523, 659, 784], 0.16);
+    playVoiceLine();
+  }
+
+  function beginFeedPlay() {
+    if (game.state !== "feedIntro") return;
+    show(el.screenFeedIntro, false);
+    FEED.resetCan(game.feed);
+    game.state = "feedPlaying";
+  }
+
+  function updateFeedMolly(dt) {
+    const run = game.feed;
+    const ev = FEED.step(run, dt, reduceMotion);
+
+    // The HUD timer bar doubles as Molly's patience meter -- it empties as she
+    // gets impatient, going red as it runs low.
+    el.timerFill.style.transform = "scaleX(" + run.patience + ")";
+    el.timerFill.style.background = run.patience < 0.3
+      ? "linear-gradient(90deg, var(--accent), var(--warn))"
+      : "linear-gradient(90deg, var(--good), var(--warn))";
+
+    if (ev.telegraph) beep(ev.hazType === "paw" ? 240 : 190, 0.12, "sawtooth", 0.10);
+    if (ev.strike) {
+      game.shake = reduceMotion ? 0 : 20;
+      beep(90, 0.12, "square", 0.18);     // deeper, harder thud
+      beep(150, 0.06, "sawtooth", 0.10);  // crack on top
+    }
+    if (ev.patienceOut) { finishFeedMolly(false); }
+  }
+
+  function attemptFeed() {
+    if (game.state !== "feedPlaying") return;
+    const run = game.feed;
+    const r = FEED.attempt(run);
+    game.score += r.points;
+    game.feedBonus += r.points;
+    updateFeedHud();
+
+    if (r.tier === "bullseye") {
+      chord([784, 1046, 1318], 0.12);          // bright bonus-zone flourish
+      spawnConfettiAt(view.w / 2, view.h * 0.62, 0.35);
+    } else if (r.tier === "perfect" || r.tier === "good") {
+      beep(r.tier === "perfect" ? 880 : 660, 0.10, "triangle", 0.18);
+    } else {
+      beep(160, 0.18, "sawtooth", 0.14);
+      game.shake = reduceMotion ? 0 : 8;
+    }
+
+    if (run.failed) { finishFeedMolly(false); return; }
+
+    if (r.opened) {
+      const cx = view.w / 2;
+      const cy = view.h * 0.62;
+      spawnConfettiAt(cx, cy, r.complete ? 1.4 : 0.9);
+      game.shake = reduceMotion ? 0 : 14;
+      sfxPin(1000);
+      fart();
+      showFeedBanner(r.complete ? "FINALLY! FOOD!" : "POP! +" + r.points, run.opened);
+      playVoiceLine();
+      game.state = "feedResult";
+      game.lockT = r.complete ? 1.6 : 1.1;
+    }
+  }
+
+  function advanceFeedCan() {
+    const run = game.feed;
+    if (FEED.isComplete(run) || !FEED.nextCan(run)) {
+      startFeedDone(true);
+      return;
+    }
+    // One prompt upfront only: flow straight into the next can. nextCan() has
+    // already reset it; the result-card lock just played, so the player gets a
+    // beat before the new sweep starts.
+    updateFeedHud();
+    game.state = "feedPlaying";
+  }
+
+  function startFeedDone(victory) {
+    game.state = "feedDone";
+    game.feedCleared = victory;
+    game.lockT = victory ? 1.4 : 2.6;   // linger on Molly's verdict when she's snubbed
+    if (victory) {
+      spawnConfettiAt(view.w / 2, view.h * 0.4, 1.6);
+      game.shake = reduceMotion ? 0 : 18;
+      chord([659, 784, 988, 1318], 0.24);
+      showFeedBanner("MOLLY IS FED!", FEED.CANS_GOAL);
+    } else {
+      beep(150, 0.4, "sawtooth", 0.16);
+      showFeedBanner("She stalked off.", game.feed ? game.feed.opened : 0);
+    }
+  }
+
+  // The bonus is over: re-run the pinball qualifier exactly as proceed() used
+  // to, with Molly's points already folded into game.score. A patience failure
+  // drops straight to the scoreboard regardless of score.
+  function finishFeedHandoff() {
+    game.feed = null;
+    if (!game.feedCleared) { endGame(); return; }
+    if (game.score >= PINBALL_UNLOCK) startPinball();
+    else endGame();
+  }
+
+  function finishFeedMolly(victory) {
+    startFeedDone(victory);
+  }
+
+  function updateFeedHud() {
+    const run = game.feed;
+    if (!run) return;
+    if (el.roundLabel) el.roundLabel.textContent = "Can";
+    el.round.textContent = (run.idx + 1) + " / " + FEED.CANS_GOAL;
+    el.score.textContent = game.score;
+    el.best.textContent = game.best;
+  }
+
+  // Reuses the pinball banner element; pip count tracks cans opened.
+  function showFeedBanner(text, opened) {
+    if (!el.pinBanner) return;
+    el.pinBannerText.textContent = text;
+    let pips = "";
+    for (let i = 0; i < FEED.CANS_GOAL; i++) pips += (i < opened ? "●" : "○");
+    el.pinBannerPips.textContent = pips;
+    show(el.pinBanner, true);
+    el.pinBanner.classList.remove("show");
+    void el.pinBanner.offsetWidth;
+    if (!reduceMotion) el.pinBanner.classList.add("show");
+    clearTimeout(feedBannerTimer);
+    feedBannerTimer = setTimeout(() => show(el.pinBanner, false), 1500);
+  }
+
+  function drawFeedMolly() {
+    const run = game.feed;
+    if (!run) return;
+
+    // Failed the bonus (didn't open every can): Molly's verdict fills the screen.
+    if (game.state === "feedDone" && !game.feedCleared) { drawMollyVerdict(); return; }
+
+    const can = FEED.activeCan(run);
+    const r = can.rule;
+    const cx = view.w / 2;
+    const cy = view.h * 0.62;
+    const base = Math.min(view.w, view.h);
+    const ringR = base * 0.20;
+
+    // Telegraph progress (0..1) drives Molly's lunge strike and the paw swipe.
+    const h = run.haz;
+    const tele = (r.hazard && h.phase === "telegraph") ? (1 - h.tele / FEED.TELE) : 0;
+
+    // Molly's head, resting above the can. A lunge is a STRIKE, not a fall: she
+    // rears back during the first half of the tell, then stabs down fast to land
+    // right at the can rim on the strike frame (then snaps back when it resolves).
+    const headY0 = view.h * 0.30;
+    let dipPx = 0, grow = 1;
+    if (h.type === "lunge" && tele > 0) {
+      const rearBack = ringR * 0.40;
+      const strikeTargetY = cy - ringR * 0.85;            // head center stabs down ONTO the can
+      const maxDip = Math.max(0, strikeTargetY - headY0);
+      if (tele < 0.55) {
+        const a = tele / 0.55;                            // wind up: rear back, coiling
+        dipPx = -rearBack * a;
+        grow = 1 + 0.06 * a;
+      } else {
+        const s = (tele - 0.55) / 0.45;                   // strike: snap down hard (cubic)
+        const se = s * s * s;
+        dipPx = -rearBack + (maxDip + rearBack) * se;
+        grow = 1 + 0.46 * se;
+      }
+    }
+    if (sprites.molly) {
+      const mH = base * 0.34 * grow;
+      const aspect = sprites.molly.naturalWidth / sprites.molly.naturalHeight || 1;
+      const mW = mH * aspect;
+      const my = headY0 - mH / 2 + dipPx;
+      ctx.save();
+      ctx.drawImage(sprites.molly, cx - mW / 2, my, mW, mH);
+      ctx.restore();
+    }
+
+    // The can lid (dark disc + metal rim).
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(12, 12, 14, 0.92)";
+    ctx.fill();
+    ctx.lineWidth = Math.max(4, ringR * 0.10);
+    ctx.strokeStyle = "rgba(200, 200, 210, 0.65)";
+    ctx.stroke();
+
+    // The "kibble" decoy arc she refuses to eat (later cans only).
+    if (r.kibble) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, ringR, run.kibble - r.kibble, run.kibble + r.kibble);
+      ctx.strokeStyle = "rgba(254, 0, 0, 0.55)";
+      ctx.lineWidth = Math.max(5, ringR * 0.14);
+      ctx.stroke();
+    }
+
+    // The green pull-tab -- the target.
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringR, run.notch - r.notch, run.notch + r.notch);
+    ctx.strokeStyle = "rgba(65, 224, 163, 0.9)";
+    ctx.lineWidth = Math.max(6, ringR * 0.18);
+    ctx.stroke();
+
+    // The bonus zone -- a gold core in the center of the green for extra points.
+    const bz = r.notch * FEED.BULLSEYE_FRAC;
+    ctx.beginPath();
+    ctx.arc(cx, cy, ringR, run.notch - bz, run.notch + bz);
+    ctx.strokeStyle = "rgba(255, 214, 64, 0.98)";
+    ctx.lineWidth = Math.max(7, ringR * 0.22);
+    ctx.shadowColor = "rgba(255, 214, 64, 0.8)";
+    ctx.shadowBlur = ringR * 0.3;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // The opener (sweeping pointer).
+    const ox = cx + Math.cos(run.theta) * ringR;
+    const oy = cy + Math.sin(run.theta) * ringR;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(ox, oy);
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(ox, oy, ringR * 0.09, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hits-needed pips at the can's center for multi-stop cans.
+    if (r.hits > 1) {
+      const pipR = ringR * 0.07;
+      const gap = pipR * 2.6;
+      const startX = cx - gap * (r.hits - 1) / 2;
+      for (let i = 0; i < r.hits; i++) {
+        ctx.beginPath();
+        ctx.arc(startX + i * gap, cy, pipR, 0, Math.PI * 2);
+        ctx.fillStyle = i < run.hitsDone ? "rgba(65,224,163,0.95)" : "rgba(255,255,255,0.25)";
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+
+    // A drawn paw swiping in during a "paw" telegraph (her photo is just a head).
+    if (h.type === "paw" && tele > 0) {
+      drawSwipingPaw(cx, cy, ringR, run.haz.pawAngle, tele);
+    }
+
+  }
+
+  // The fail screen: pawmiddlefinger.png blown up large, centered.
+  function drawMollyVerdict() {
+    if (!sprites.pawMid) return;
+    const base = Math.min(view.w, view.h);
+    const h = base * 0.7;
+    const aspect = sprites.pawMid.naturalWidth / sprites.pawMid.naturalHeight || 1;
+    const w = h * aspect;
+    ctx.save();
+    ctx.drawImage(sprites.pawMid, view.w / 2 - w / 2, view.h * 0.5 - h / 2, w, h);
+    ctx.restore();
+  }
+
+  function drawSwipingPaw(cx, cy, ringR, theta, tele) {
+    if (!sprites.paw) return;
+    // Paw slides in from off-rim toward the can as the strike nears.
+    const reach = ringR * (1.9 - tele * 1.1);
+    const px = cx + Math.cos(theta) * reach;
+    const py = cy + Math.sin(theta) * reach;
+    const pawH = ringR * 1.6;
+    const aspect = sprites.paw.naturalWidth / sprites.paw.naturalHeight || 1;
+    const pawW = pawH * aspect;
+    ctx.save();
+    ctx.translate(px, py);
+    // Source claws point up; rotate so they face the can (the swipe direction).
+    ctx.rotate(theta - Math.PI / 2);
+    ctx.drawImage(sprites.paw, -pawW / 2, -pawH / 2, pawW, pawH);
+    ctx.restore();
   }
 
   // ---------- Pinball bonus phase ----------
@@ -1899,6 +2274,14 @@
         else if (game.pinVictory) startBlackjack();   // cleared all five -> final boss
         else endGame();                               // ran out of balls -> scoreboard
       }
+    } else if (game.state === "feedPlaying") {
+      updateFeedMolly(dt);
+    } else if (game.state === "feedResult" || game.state === "feedDone") {
+      game.lockT -= dt;
+      if (game.lockT <= 0) {
+        if (game.state === "feedResult") advanceFeedCan();
+        else finishFeedHandoff();                      // score gate -> pinball or scoreboard
+      }
     }
 
     // The aim target IS the head graphic's crown point -- track it exactly so a
@@ -1958,6 +2341,8 @@
 
     if (game.pin) {
       drawPinball();
+    } else if (game.feed) {
+      drawFeedMolly();
     } else {
       drawSpotlight();
       if (game.state === "countdown" || game.state === "playing" ||
@@ -2082,6 +2467,7 @@
   }
 
   function onDown(e) {
+    if (game.state === "feedPlaying") { e.preventDefault(); attemptFeed(); return; }
     if (game.state === "pinPlaying") {
       e.preventDefault();
       localPoint(e);
@@ -2143,6 +2529,7 @@
   window.addEventListener("pointerdown", () => {
     if (game.state === "roundCard") proceed();
     else if (game.state === "pinIntro") beginPinPlay();   // tap anywhere to launch in
+    else if (game.state === "feedIntro") beginFeedPlay();  // tap anywhere to start opening
   });
   window.addEventListener("pointermove", onMove, { passive: false });
   window.addEventListener("pointerup", onUp);
@@ -2155,6 +2542,7 @@
   el.btnAgain.addEventListener("click", () => { sfxClick(); startGame(); });
   el.btnRoundNext.addEventListener("click", () => { sfxClick(); proceed(); });
   if (el.btnPinStart) el.btnPinStart.addEventListener("click", () => { sfxClick(); beginPinPlay(); });
+  if (el.btnFeedStart) el.btnFeedStart.addEventListener("click", () => { sfxClick(); beginFeedPlay(); });
   if (el.btnBjHit) el.btnBjHit.addEventListener("click", () => { sfxClick(); bjHit(); });
   if (el.btnBjStand) el.btnBjStand.addEventListener("click", () => { sfxClick(); bjStand(); });
   if (el.btnBjNext) el.btnBjNext.addEventListener("click", () => { sfxClick(); bjNext(); });
@@ -2195,6 +2583,14 @@
     }
     if (game.state === "pinIntro") {
       if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); beginPinPlay(); }
+      return;
+    }
+    if (game.state === "feedIntro") {
+      if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); beginFeedPlay(); }
+      return;
+    }
+    if (game.state === "feedPlaying") {
+      if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); attemptFeed(); }
       return;
     }
     if (game.state === "pinPlaying") { handlePinKey(e, true); return; }
@@ -3164,7 +3560,7 @@
     loadAssets().then(() => {
       game.state = "start";
       parkWig();
-      if (DEV_PINBALL || DEV_BLACKJACK || DEV_SLOTS) startGame();   // TEMP: auto-enter a finale phase for tuning
+      if (DEV_PINBALL || DEV_BLACKJACK || DEV_SLOTS || DEV_FEEDMOLLY) startGame();   // TEMP: auto-enter a phase for tuning
     });
     requestAnimationFrame(frame);
   }

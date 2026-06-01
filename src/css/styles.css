@@ -408,6 +408,9 @@ html, body {
   opacity: 0.72;
 }
 
+/* Breathing room above the Feed Molly start button (its hint sits just above). */
+#btn-feed-start { margin-top: 22px; }
+
 /* Transient capture/status banner over the table -- no overlay backdrop, so the
    table stays visible behind it. */
 .pin-banner {
