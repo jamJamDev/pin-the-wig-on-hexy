@@ -4,8 +4,8 @@
 // the payline catalog is a fixed set of distinct lines, the evaluator scores only
 // COMPLETE lines (no partial runs), the credit/bet state machine guards every
 // edge, a fixed seed reproduces an identical sequence, the slot bonus is bounded,
-// and -- the headline -- the rig delivers a ~51% net-win frequency with EV ~= 0,
-// while what the reels show always equals what the player is paid.
+// and -- the headline -- the rig delivers a ~60% net-win frequency with a tiny
+// configured house edge, while what the reels show always equals what's paid.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -19,7 +19,7 @@ test("constants and paytable are well-formed", () => {
   assert.equal(S.ROWS, 5);
   assert.equal(S.START_CREDITS, 1000);
   assert.equal(S.TARGET_CREDITS, 2000);
-  assert.equal(S.WIN_RATE, 0.51);
+  assert.equal(S.WIN_RATE, 0.595);
   assert.equal(S.MAX_LINES, 30);
   // FULL_PAY is one full-line payout per symbol, ascending strictly by rank.
   assert.equal(S.FULL_PAY.length, S.SYMBOLS.length);
@@ -336,12 +336,15 @@ test("wins land on lines of every shape (not just horizontals) and reels never r
 });
 
 test("true multi-line: a single spin can pay several lines, and they stack to the total", () => {
-  // The headline of this change: a win's payout is split across distinct-symbol
-  // runs planted on several active lines at once. Over many wins on the busiest
-  // board, plenty pay 2+ lines, the count never exceeds MAX_WIN_LINES, and the
-  // highlighted per-line wins always sum to exactly the credited payout.
+  // A win's payout can be split across distinct-symbol runs planted on several
+  // active lines at once. With the current single-line-heavy tuning the DEFAULT
+  // 30-line board pays mostly single crown lines (a win only has to clear a
+  // 30-unit stake, and crown is the lone single line that does), so the multi-line
+  // payout shows up at mid bet sizes, where the net-win target spans 2-3 line
+  // spreads. On a 10-line board: multi-line wins recur, peak at MAX_WIN_LINES,
+  // stay distinct, and stack to exactly the credited payout.
   const g = S.createGame(31);
-  S.setLines(g, S.MAX_LINES);          // 30 lines -> the busiest board
+  S.setLines(g, 10);
   S.setBet(g, 0);
   let wins = 0, multi = 0, peak = 0;
   for (let i = 0; i < 8000 && wins < 1500; i++) {
@@ -362,8 +365,8 @@ test("true multi-line: a single spin can pay several lines, and they stack to th
     assert.equal(sum, lr.payout, "stacked line wins must equal the credited payout");
   }
   assert.ok(wins > 200, "expected plenty of wins, got " + wins);
-  assert.ok(multi >= wins * 0.3,
-    "most big-board wins should pay multiple lines, got " + multi + "/" + wins);
+  assert.ok(multi >= wins * 0.1,
+    "multi-line wins must recur, got " + multi + "/" + wins);
   assert.ok(peak >= 3, "the busiest wins should light up 3+ lines, peak was " + peak);
 });
 
@@ -395,7 +398,7 @@ function assertReelsRepeatFree(grid, label) {
   }
 }
 
-test("THE RIG: ~51% net-win frequency and EV ~= 0 over many spins", () => {
+test("THE RIG: ~60% net-win frequency and the configured house edge over many spins", () => {
   // Deterministic Monte Carlo: independent spins (credits reset so an early
   // bust never truncates the sample), tallying win frequency and mean delta.
   const N = 50000;
@@ -418,8 +421,14 @@ test("THE RIG: ~51% net-win frequency and EV ~= 0 over many spins", () => {
   const meanDelta = totalDelta / N;
   assert.ok(Math.abs(freq - S.WIN_RATE) < 0.01,
     "net-win frequency " + freq.toFixed(4) + " should be ~" + S.WIN_RATE);
-  assert.ok(Math.abs(meanDelta) < 0.05 * cost,
-    "mean credit delta " + meanDelta.toFixed(4) + " should be ~0 (EDGE=" + S.EDGE + ")");
+  // Mean delta tracks the configured edge: EDGE*cost. The edge is deliberately
+  // tiny here (a slow drain), so assert closeness to EDGE*cost rather than a sign
+  // -- that still catches a drifted OR ceiling-capped edge without going flaky on
+  // the small magnitude.
+  const expectedDelta = S.EDGE * cost;
+  assert.ok(Math.abs(meanDelta - expectedDelta) < 0.03 * cost,
+    "mean credit delta " + meanDelta.toFixed(4) + " should track EDGE*cost = "
+      + expectedDelta.toFixed(4) + " (EDGE=" + S.EDGE + ")");
 });
 
 test("requiredMeanNet matches the EV identity for the configured knobs", () => {

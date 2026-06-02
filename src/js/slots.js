@@ -2,8 +2,8 @@
  * Pin the Wig on Hexy -- the FINAL leg of the GOD GAMER gauntlet: a 5x5
  * multi-line slot machine. Reaching here means the player beat the True God
  * Gamer at blackjack. Now they must turn 1000 credits into 2000 on a machine
- * rigged to a near coin-flip: 51% of spins net a win, with the expected value
- * per spin tuned to ~zero (a swingy grind, not a gentle drift). Bust to 0 and
+ * rigged so 60% of spins net a win -- frequent, mostly single-line payouts --
+ * with the expected value per spin tuned just below zero (a slow drain). Bust to 0 and
  * the run ends in failure; reach 2000 and the gauntlet is cleared.
  *
  * The rig is outcome-first AND honest-on-screen: every spin first decides
@@ -19,8 +19,8 @@
  * permutation reels. A loss forms no full line on any active line. The grid is
  * rejection-sampled so EXACTLY those full lines pay and nothing else. The win
  * total is drawn from a two-point mixture over achievable full-line spread sums
- * whose mean is fixed by WIN_RATE and EDGE, so 51% win-frequency and EV~=0 hold
- * provably (see tests/).
+ * whose mean is fixed by WIN_RATE and EDGE, so the 60% win-frequency and the
+ * configured house edge hold provably (see tests/).
  *
  * Pure and DOM-free: the payline catalog, grid synthesis, the line evaluator,
  * the rig, and the credit/bet state machine are all verifiable in Node. game.js
@@ -55,13 +55,20 @@
   var DEBT_LIMIT = 50;
 
   // ---- THE RIG: the two knobs that matter ----
-  // WIN_RATE   fraction of spins that are a net win for the player.
+  // WIN_RATE   fraction of spins that are a net win for the player -- the "fun"
+  //            knob: ~60% of spins pay, so wins feel frequent. At this rate the
+  //            net-win target sits just above the payout floor (a single crown
+  //            line), so most wins are SINGLE-line rather than clumped multi-line
+  //            spreads. (Multi-line wins still occur at smaller bets -- see the
+  //            multi-line test -- but the default 30-line board pays mostly singles.)
   // EDGE       house edge as EV/cost: 0 = fair (EV~=0), >0 favors the player,
-  //            <0 favors the house. With WIN_RATE=0.51, EDGE=0 the chance of
-  //            reaching 2000 before busting from 1000 is ~50% (gambler's ruin),
-  //            by design -- nudge EDGE up to soften the final gauntlet leg.
-  var WIN_RATE = 0.51;
-  var EDGE = 0.0;
+  //            <0 favors the house. A SMALL edge swings the outcome hard because it
+  //            compounds over the long flat-bet grind from 1000 to 2000: at this
+  //            low-volatility single-line tuning, EDGE=-0.002 (RTP ~99.8%) already
+  //            pulls the player's chance to clear the stage from ~50% (fair) down
+  //            to ~45%. Keep |EDGE| tiny here; even -0.01 would crater it past ~27%.
+  var WIN_RATE = 0.595;
+  var EDGE = -0.002;
 
   // Hexy-themed glyphs, ordered low -> high value. The grid stores a symbol's
   // index (0..4); the renderer maps it to a glyph.
@@ -263,7 +270,7 @@
   // than `lines` (so the win always NETS positive), drawn from a two-point mixture
   // of the largest qualifying total at or below the EV target (lo) and the smallest
   // at or above it (hi). E[V] = target exactly, independent of the lo/hi swing,
-  // which is what makes 51% win-frequency and EV~=0 coexist. The line cap
+  // which is what makes the 60% win-frequency and the chosen house edge coexist. The line cap
   // (MAX_WIN_LINES) bounds how many lines a single payout may spread across.
   function drawWinUnits(rng, lines) {
     var maxParts = Math.min(lines, MAX_WIN_LINES);

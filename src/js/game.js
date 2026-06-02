@@ -2,8 +2,10 @@
 
 (() => {
   const TOTAL_ROUNDS = 10;
-  // Base score (75% of a perfect 10-round run) that unlocks the pinball finale.
-  const PINBALL_UNLOCK = TOTAL_ROUNDS * 1000 * 0.75;
+  // Base-game score (70% of a perfect 10-round run) that unlocks the pinball
+  // finale. Measured on the ten pin rounds ALONE -- the Feed Molly bonus is a
+  // separate pass/fail gate whose points never count toward this threshold.
+  const PINBALL_UNLOCK = TOTAL_ROUNDS * 1000 * 0.70;
   // TEMP dev shortcuts for tuning the finale: with "?pinball" in the URL every
   // game start (and "Play Again") drops straight into the pinball bonus; with
   // "?blackjack" it drops straight into the blackjack showdown (as if pinball was
@@ -63,8 +65,9 @@
     throw new Error("Pin the Wig on Hexy: src/js/slots.js failed to load");
   }
 
-  // "Feed Molly" bonus, mandatory after round 10. Its score folds into the run
-  // total + accuracy denominator, so fail loud if missing (same posture as above).
+  // "Feed Molly" bonus, played after round 10 by players who clear the base
+  // qualifier. Its score folds into the run total + accuracy denominator, so
+  // fail loud if missing (same posture as above).
   const FEED = window.PTWOHFeedMolly;
   if (!FEED || typeof FEED.createRun !== "function") {
     throw new Error("Pin the Wig on Hexy: src/js/feedmolly.js failed to load");
@@ -862,11 +865,12 @@
     game.advancing = true;
     show(el.screenRound, false);
     if (game.round >= TOTAL_ROUNDS) {
-      // Feed Molly is a mandatory comedic beat for everyone who finishes the
-      // ten pin rounds. The pinball-finale qualifier (and the rest of the
-      // gauntlet) is re-checked AFTER it, in finishFeedHandoff() -- Molly's
-      // points count toward that gate.
-      startFeedMolly();
+      // First part is the ten pin rounds: clear PINBALL_UNLOCK on that score
+      // alone or the run ends here. game.score is base-only at this point (Feed
+      // Molly hasn't run), so no bonus can buy a player past a base game they
+      // didn't earn. Clear it and Feed Molly is the next, separate gate.
+      if (game.score >= PINBALL_UNLOCK) startFeedMolly();
+      else endGame();
     } else {
       nextRound();
     }
@@ -969,13 +973,14 @@
   }
 
   // ---------- Feed Molly bonus phase ----------
-  // Mandatory after round 10, before the pinball qualifier. Pure logic lives in
-  // FEED (src/js/feedmolly.js); this is the I/O shell. Flow:
-  //   proceed() [round>=10] -> startFeedMolly() -> feedIntro
+  // Reached only by players who clear the base-score qualifier in the ten pin
+  // rounds (gated in proceed()); Molly is then a clear-or-fail gate to pinball.
+  // Pure logic lives in FEED (src/js/feedmolly.js); this is the I/O shell. Flow:
+  //   proceed() [round>=10, score>=PINBALL_UNLOCK] -> startFeedMolly() -> feedIntro
   //   feedIntro --(Open/Space/tap)--> feedPlaying
   //   feedPlaying --tap opens a can--> feedResult --(lock)--> next can or feedDone
   //   feedPlaying --patience empties--> feedDone (failed): Molly stalks off
-  //   feedDone --(lock)--> finishFeedHandoff(): score gate -> pinball or scoreboard
+  //   feedDone --(lock)--> finishFeedHandoff(): cleared -> pinball, else scoreboard
   let feedBannerTimer = 0;
 
   function startFeedMolly() {
@@ -1091,13 +1096,14 @@
     }
   }
 
-  // The bonus is over: re-run the pinball qualifier exactly as proceed() used
-  // to, with Molly's points already folded into game.score. A patience failure
-  // drops straight to the scoreboard regardless of score.
+  // The bonus is over. Feed Molly is a pure clear-or-fail gate: every can opened
+  // advances to the pinball finale, a patience failure drops to the scoreboard.
+  // The base-score qualifier was already settled before Molly ran (see
+  // proceed()), so reaching this point cleared means the player has earned the
+  // finale -- no second score check.
   function finishFeedHandoff() {
     game.feed = null;
-    if (!game.feedCleared) { endGame(); return; }
-    if (game.score >= PINBALL_UNLOCK) startPinball();
+    if (game.feedCleared) startPinball();
     else endGame();
   }
 
@@ -2282,7 +2288,7 @@
       game.lockT -= dt;
       if (game.lockT <= 0) {
         if (game.state === "feedResult") advanceFeedCan();
-        else finishFeedHandoff();                      // score gate -> pinball or scoreboard
+        else finishFeedHandoff();                      // cleared -> pinball, else scoreboard
       }
     }
 
