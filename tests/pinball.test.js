@@ -116,6 +116,25 @@ test("a settled ball in the holder is captured; a fast one is not", () => {
   assert.equal(ev.captured, false, "fast ball must not be captured");
 });
 
+test("the upper half of the cup captures regardless of speed; the lower half stays speed-gated", () => {
+  const run = runOnTable("warmup");
+  const h = run.geom.holder;
+  // Fast ball deep in the upper half (under Hexy's head): an unconditional catch.
+  run.ball.live = true;
+  run.ball.x = h.cx; run.ball.y = h.cy - h.hh * 0.5;
+  run.ball.vx = h.captureSpeed * 3; run.ball.vy = 0;
+  let ev = P.step(run, 0.016, {});
+  assert.equal(ev.captured, true, "fast ball in the upper half should be captured");
+
+  // Same speed, mirrored into the lower half: still rejected by the speed gate.
+  P.serveBall(run);
+  run.ball.live = true;
+  run.ball.x = h.cx; run.ball.y = h.cy + h.hh * 0.5;
+  run.ball.vx = h.captureSpeed * 3; run.ball.vy = 0;
+  ev = P.step(run, 0.016, {});
+  assert.equal(ev.captured, false, "fast ball in the lower half must not be captured");
+});
+
 test("a closed shutter blocks capture even when the ball is settled inside", () => {
   // grease cycle: open 1150ms, closed 1250ms (cycle 2400ms). phase<1150 => open.
   function settledStepAt(t) {

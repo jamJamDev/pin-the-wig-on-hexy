@@ -551,22 +551,23 @@
     }
   }
 
-  // Capture: ball settled anywhere inside the cup, slow enough, gate open. The
-  // catch zone now fills the cup's full width and reaches high under the lid -- a
-  // wig lofted into Hexy's cup is slowest at its apex near the top, exactly the
-  // band the old tight sweet-spot excluded, so it kept dropping back out uncaught.
-  // The speed gate, not a narrow target, is what keeps a fast fly-through from
-  // counting. The bottom stays just inside the open mouth so a ball already exiting
-  // isn't grabbed on the way down.
+  // Capture: the ball reached Hexy's cup with the gate open. The cup is split at
+  // its center into two bands:
+  //   - Upper half (under the head): an unconditional catch. A lofted wig is
+  //     often still carrying speed at its apex, which lands right here, so gating
+  //     that on speed kept bouncing good shots back out -- reaching this deep IS
+  //     the shot.
+  //   - Lower half, down to just inside the open mouth: still speed-gated, so a
+  //     ball merely flying through the mouth on its way back out isn't grabbed.
   var CATCH_X = 1.0;      // fraction of cup half-width that still catches (full interior)
   var CATCH_TOP = 0.95;   // fraction of half-height above center that still catches
   var CATCH_BOT = 0.9;    // fraction of half-height below center (just inside the mouth)
   function checkCapture(run) {
     var b = run.ball, h = run.geom.holder, rs = run.ruleState;
     if (!rs.captureOpen) return false;
-    var insideX = Math.abs(b.x - h.cx) < h.hw * CATCH_X;
-    var insideY = b.y > h.cy - h.hh * CATCH_TOP && b.y < h.cy + h.hh * CATCH_BOT;
-    return insideX && insideY && speedOf(b) < h.captureSpeed;
+    if (Math.abs(b.x - h.cx) >= h.hw * CATCH_X) return false;
+    if (b.y > h.cy - h.hh * CATCH_TOP && b.y < h.cy) return true;
+    return b.y >= h.cy && b.y < h.cy + h.hh * CATCH_BOT && speedOf(b) < h.captureSpeed;
   }
 
   function pointInHolder(run, x, y) {
