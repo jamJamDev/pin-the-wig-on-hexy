@@ -68,9 +68,11 @@ services:
       caddy:
         condition: service_healthy
     command: ["tunnel", "--no-autoupdate", "run"]
-    env_file:
-      - path: .env                       # supplies TUNNEL_TOKEN; gitignored, never committed
-        required: false
+    # TUNNEL_TOKEN comes from the gitignored root .env (auto-loaded by Compose for
+    # interpolation); the empty default lets build/pull run before the token is set
+    # and keeps the stack parseable on a baseline Compose 2.x host.
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
     read_only: true
     tmpfs:
       - /tmp
