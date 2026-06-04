@@ -71,6 +71,40 @@ html, body {
 }
 .hud-value { font-size: clamp(20px, 4.6vw, 30px); font-weight: 800; }
 .hud-score .hud-value { color: var(--accent); }
+
+/* Standalone gauntlet-progress pill. Hidden through stage 1 to keep the later
+   stages a surprise; revealed at stage 2 and counts up to 5/5. Sits above the
+   screen overlays (z-index 10) so it stays visible on the blackjack/slots legs
+   where the HUD is hidden entirely. */
+.stage-indicator {
+  position: absolute;
+  top: clamp(58px, 9vh, 80px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 18px;
+  background: var(--panel);
+  border: 2px solid var(--panel-edge);
+  border-radius: 999px;
+  pointer-events: none;
+  text-align: center;
+}
+.stage-indicator-label {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 800;
+  opacity: 0.7;
+}
+.stage-indicator-value {
+  font-size: clamp(16px, 3.4vw, 22px);
+  font-weight: 900;
+  color: var(--accent);
+}
 .hud-timer {
   flex: 1;
   height: 9px;

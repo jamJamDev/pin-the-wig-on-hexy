@@ -2,6 +2,7 @@
 
 (() => {
   const TOTAL_ROUNDS = 10;
+  const TOTAL_STAGES = 5;
   // Base-game score (70% of a perfect 10-round run) that unlocks the pinball
   // finale. Measured on the ten pin rounds ALONE -- the Feed Molly bonus is a
   // separate pass/fail gate whose points never count toward this threshold.
@@ -107,6 +108,8 @@
     score: document.getElementById("hud-score"),
     best: document.getElementById("hud-best"),
     timerFill: document.getElementById("hud-timer-fill"),
+    stageIndicator: document.getElementById("stage-indicator"),
+    stageValue: document.getElementById("stage-indicator-value"),
     mute: document.getElementById("btn-mute"),
     muteGlyph: document.getElementById("mute-glyph"),
     screenStart: document.getElementById("screen-start"),
@@ -689,6 +692,7 @@
     show(el.screenOver, false);
     el.hud.classList.remove("hidden");
     el.hud.setAttribute("aria-hidden", "false");
+    setStage(0);
     // TEMP: jump straight to a finale phase for tuning. ?blackjack and ?slots
     // pretend the earlier legs were already cleared so the win gate is consistent.
     if (DEV_SLOTS) {
@@ -880,6 +884,7 @@
     game.state = "gameOver";
     el.hud.classList.add("hidden");
     el.hud.setAttribute("aria-hidden", "true");
+    setStage(0);
     showCountdown(false);  // in case the run ended straight off a countdown
     game.pin = null;       // bonus phase is over; drop the run state
     game.feed = null;
@@ -991,6 +996,7 @@
     game.feedCleared = false;
     el.hud.classList.remove("hidden");
     el.hud.setAttribute("aria-hidden", "false");
+    setStage(2);
     startFeedIntro();
   }
 
@@ -1302,6 +1308,7 @@
     resetPinInput();
     el.hud.classList.remove("hidden");
     el.hud.setAttribute("aria-hidden", "false");
+    setStage(3);
     startPinIntro();
   }
 
@@ -1684,6 +1691,7 @@
     game.state = "blackjack";
     el.hud.classList.add("hidden");
     el.hud.setAttribute("aria-hidden", "true");
+    setStage(4);
     bjRender();
     show(el.screenBlackjack, true);
     chord([523, 659, 784], 0.16);
@@ -1869,6 +1877,7 @@
     slotAnim = null;
     el.hud.classList.add("hidden");
     el.hud.setAttribute("aria-hidden", "true");
+    setStage(5);
     slotsRender();
     show(el.screenSlots, true);
     // The grid is display:none until the line above, and the browser's first
@@ -2629,6 +2638,16 @@
   // ---------- Helpers ----------
   function show(node, visible) {
     node.classList.toggle("hidden", !visible);
+  }
+
+  // Gauntlet-progress badge. Stage 1 (the ten pin rounds) stays a secret -- no
+  // indicator shows until the player reaches stage 2, then it counts up 2..5
+  // across the remaining stages. Pass 0 (or 1) to hide it.
+  function setStage(n) {
+    const reveal = n >= 2;
+    if (reveal) el.stageValue.textContent = n + " / " + TOTAL_STAGES;
+    show(el.stageIndicator, reveal);
+    el.stageIndicator.setAttribute("aria-hidden", reveal ? "false" : "true");
   }
 
   function updateHud() {
