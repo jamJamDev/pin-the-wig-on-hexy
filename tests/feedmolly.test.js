@@ -37,6 +37,8 @@ test("maxScore is every required strike a BULLSEYE plus an open bonus per can", 
   let expected = 0;
   for (const c of F.CANS) expected += c.rule.hits * F.BULLSEYE + F.OPEN_BONUS;
   assert.equal(F.maxScore(), expected);
+  // Every stage tops out at the same 10000 so each contributes equally to the overall score.
+  assert.equal(F.maxScore(), 10000);
 });
 
 test("createRun starts full patience on the first can", () => {

@@ -45,8 +45,8 @@
   var START_CREDITS = 1000;      // bankroll at the deal
   var TARGET_CREDITS = 2000;     // reach this to COMPLETE the stage
   var MAX_LINES = 30;            // size of the payline catalog ("a TON")
-  var MIN_LINES = 1;
-  var BET_TIERS = [1, 2, 5, 10, 25];   // discrete bet-per-line values (min cost = 1 line x 1)
+  var MIN_LINES = 2;   // floor is 2: one active line forces every win to the >=2x payout floor, overshooting the EV target into a ~+19%/spin grind
+  var BET_TIERS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];   // discrete bet-per-line values (min cost = 1 line x 10)
 
   // Playing on credit: a spin may be staked even when the bankroll can't cover
   // it, going as far as DEBT_LIMIT into the red. But debt is never carried -- if
@@ -102,8 +102,8 @@
 
   // ---------- Payline catalog ----------
   // A payline is one row index per reel column: [r0, r1, r2, r3, r4]. Built once
-  // and frozen. The five straight horizontals come FIRST (so betting "1 line"
-  // means the top row), then diagonals, chevrons, zigzags, and W/M shapes. The
+  // and frozen. The five straight horizontals come FIRST (so the lowest-index
+  // lines are the top rows), then diagonals, chevrons, zigzags, and W/M shapes. The
   // catalog is exactly MAX_LINES distinct lines; players bet on the first N.
   function clampRow(r) { return r < 0 ? 0 : (r >= ROWS ? ROWS - 1 : r); }
 
@@ -531,6 +531,7 @@
       seed: s,
       spinNum: 0,
       credits: START_CREDITS,
+      peakCredits: START_CREDITS,  // high-water mark of credits -- the scoring basis
       lines: MAX_LINES,       // default: every line lit
       betIndex: 0,            // default: minimum per-line bet
       phase: "idle",
@@ -584,6 +585,7 @@
     }
     var res = evaluate(game.grid, lines, per);       // single source of truth
     game.credits += res.payout;                      // pay the actual evaluated win
+    if (game.credits > game.peakCredits) game.peakCredits = game.credits;  // track the best reached
     game.lastResult = {
       payout: res.payout,
       winningLines: res.winningLines,
@@ -603,13 +605,19 @@
   function isBust(game) { return !!game.bust; }
 
   // ---------- Scoring ----------
-  // Points this run banks at the slot: progress from the starting bankroll
-  // toward the target, clamped to [0, TARGET-START]. Completion banks the full
-  // 1000; a bust banks 0. Bounded so the rank ladder's denominator stays valid.
+  // Points this run banks at the slot, graded by the BEST bankroll reached (the
+  // high-water mark), not the final one -- the stage only ends at the target or a
+  // bust, so scoring the peak is what makes "doing better" pay: a run that climbed
+  // to 1900 before busting outscores one that busted at the deal. Progress from
+  // the starting bankroll toward the target is scaled so a clear banks the full
+  // 10000 and a never-gained bust banks 0 -- the same per-stage cap every leg tops
+  // out at, so each contributes equally to the overall score.
+  var SCORE_PER_CREDIT = 10;   // (TARGET-START) credits of progress -> 10000 points
   function slotBonus(game) {
-    return clamp(game.credits - START_CREDITS, 0, TARGET_CREDITS - START_CREDITS);
+    var peak = game.peakCredits;
+    return SCORE_PER_CREDIT * clamp(peak - START_CREDITS, 0, TARGET_CREDITS - START_CREDITS);
   }
-  function maxScore() { return TARGET_CREDITS - START_CREDITS; }   // 1000
+  function maxScore() { return SCORE_PER_CREDIT * (TARGET_CREDITS - START_CREDITS); }   // 10000
 
   return {
     REELS: REELS,

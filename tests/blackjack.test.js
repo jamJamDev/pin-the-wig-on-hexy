@@ -162,10 +162,39 @@ test("applyResult: four wins crowns the player, one loss is survivable", () => {
 
 test("win points are positive and a flawless match caps the blackjack bonus", () => {
   assert.ok(BJ.WIN_POINTS > 0, "a hand won must be worth something");
-  // maxScore is the rank-ladder denominator: a 4-win match is the most a run can
-  // bank, so it must equal exactly four wins' worth -- no more, no less.
-  assert.equal(BJ.maxScore(), BJ.ROUNDS_TO_WIN * BJ.WIN_POINTS);
-  assert.equal(BJ.maxScore(), 6000);
+  // maxScore is the rank-ladder denominator: a flawless 4-0 match (four wins plus
+  // the sweep bonus) is the most a run can bank -- no more, no less. Every stage
+  // tops out at the same 10000 so each leg contributes equally to the overall score.
+  assert.equal(BJ.maxScore(), BJ.ROUNDS_TO_WIN * BJ.WIN_POINTS + BJ.SWEEP_BONUS);
+  assert.equal(BJ.maxScore(), 10000);
+});
+
+test("the sweep bonus rewards a flawless match: 4-0 banks more than 4-1", () => {
+  // A clean 4-0 sweep pays the bonus on top of the four wins.
+  const clean = BJ.createGame(7);
+  function play(g, result) { g.phase = "result"; g.result = result; return BJ.applyResult(g); }
+  play(clean, "win"); play(clean, "win"); play(clean, "win"); play(clean, "win");
+  assert.equal(clean.complete, true);
+  assert.equal(clean.roundsLost, 0);
+  assert.equal(BJ.sweepBonus(clean), BJ.SWEEP_BONUS);
+
+  // A 4-1 win clinches the match but drops a hand -- no sweep.
+  const lossy = BJ.createGame(7);
+  play(lossy, "win"); play(lossy, "lose"); play(lossy, "win"); play(lossy, "win"); play(lossy, "win");
+  assert.equal(lossy.complete, true);
+  assert.equal(lossy.roundsLost, 1);
+  assert.equal(BJ.sweepBonus(lossy), 0);
+
+  // A match still in progress never pays the sweep, even at zero losses.
+  const mid = BJ.createGame(7);
+  play(mid, "win"); play(mid, "win");
+  assert.equal(mid.complete, false);
+  assert.equal(BJ.sweepBonus(mid), 0);
+
+  // Doing better strictly out-scores: a flawless run banks more than a 4-1 win.
+  const cleanTotal = BJ.ROUNDS_TO_WIN * BJ.WIN_POINTS + BJ.sweepBonus(clean);
+  const lossyTotal = BJ.ROUNDS_TO_WIN * BJ.WIN_POINTS + BJ.sweepBonus(lossy);
+  assert.ok(cleanTotal > lossyTotal, "a sweep must beat a lossy win");
 });
 
 test("applyResult: a second loss fails the whole challenge", () => {

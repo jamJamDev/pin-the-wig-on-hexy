@@ -49,7 +49,7 @@
   // so fall time is size-independent.
   var TABLE_ASPECT = 0.62;        // table width / height (portrait)
   var LEFT_X = 0.04, RIGHT_X = 0.96, TOP_Y = 0.04, BOTTOM_Y = 0.93;
-  var LANE_X = 0.85;              // separator between playfield and plunger lane
+  var LANE_X = 0.865;            // separator between playfield and plunger lane (thin lane: must stay < LANE_PARK_X - BALL_R so the parked ball clears the wall)
   var LANE_PARK_X = 0.905, LANE_PARK_Y = 0.88;
   var DRAIN_Y = 0.965;           // ball below this (and live) drains
 
@@ -57,7 +57,7 @@
   // LCHUTE_TOP, leaving a mouth above it; a ball worked left of LCHUTE_X and below
   // the mouth has entered the chute and is lost -- the left-side twin of the lethal
   // right shooter lane.
-  var LCHUTE_X = 0.155;          // inner (playfield-side) wall of the chute
+  var LCHUTE_X = 0.12;           // inner (playfield-side) wall of the chute -- a narrow kill channel
   var LCHUTE_TOP = 0.32;         // chute mouth: open above this y
 
   var BALL_R = 0.030;            // x rect.w
@@ -78,14 +78,13 @@
 
   // Two ASYMMETRIC flippers -- deliberately different lengths AND swings so the
   // table plays fun but CLUMSY: floppy, lopsided, imprecise. They are for BATTING
-  // the ball, NOT for walling off the drain. The pivots sit closer together than
-  // before so the resting tips leave only a tight center gap. Angles in screen
+  // the ball, NOT for walling off the drain. The pivots sit close together so the
+  // resting tips leave only a tight center gap. Angles in screen
   // space (y down): rest points down toward the center drain; active swings the
   // tip generally up so a flick imparts an upward kick. Geometry (validated in
   // tests/pinball.test.js by simulation):
-  //  - At REST the tips leave a center surface gap of ~0.066 -- tighter than
-  //    before (was ~0.098) but still wider than the 0.060 ball -- so an UNDEFENDED
-  //    ball falls through and drains (no free save).
+  //  - At REST the tips leave a center surface gap of ~0.0625 -- wider than the
+  //    0.060 ball, so an UNDEFENDED ball falls through and drains (no free save).
   //  - Engaging the flippers does NOT permanently wall the center. A HELD flipper
   //    sweeps a full 180 (rest +/- pi); as both tips rotate up and over they open
   //    the center wide. Across that sweep the minimum center surface gap dips below
@@ -97,8 +96,8 @@
   //    under the funnel with no under-flipper wedge. The V funnel ends are derived
   //    from the rest tips (flipperRestTipN) so the funnel always meets the tip.
   var FLIPPERS = [
-    { side: "left",  px: 0.260, py: 0.86, len: 0.200, rest: 0.530, active: -0.95 },
-    { side: "right", px: 0.680, py: 0.86, len: 0.155, rest: 2.850, active: 3.90 }
+    { side: "left",  px: 0.262, py: 0.86, len: 0.200, rest: 0.530, active: -0.95 },
+    { side: "right", px: 0.678, py: 0.86, len: 0.155, rest: 2.850, active: 3.90 }
   ];
 
   // Normalized rest-tip of a flipper definition (y scaled by aspect to match the
@@ -141,73 +140,109 @@
   // Each table layers a holder, bumpers, optional extra walls, and a rule on top
   // of the shared outline. Coords normalized in [0,1]. The rule.type switch in
   // tickRule/step is what makes each one a different challenge, not a reskin.
+  // Off-center side kickers and angled "slingshot" walls (bounce > 1) live in the
+  // upper/mid field only -- never spanning the center column below the bumper
+  // field -- so the bottom V always funnels an undefended ball to the drain. The
+  // center drain gap is sacred: nothing here catches or ledges a centered ball
+  // above the flippers (proven by tests/pinball.test.js).
   var TABLES = [
     {
       id: "warmup",
       name: "Warm-Up Wiggle",
-      hint: "Bounce it up the middle. Try not to overthink it, gamer.",
+      hint: "Bounce it up the middle. The bumpers are friendly, the slings keep it alive. Don't overthink it, gamer.",
       gravity: 0.9,
       holder: { x: 0.5, y: 0.17, w: 0.30, h: 0.15, captureSpeed: 0.95 },
       bumpers: [
-        { x: 0.38, y: 0.50, r: 0.05, bounce: REST_BUMPER },
-        { x: 0.62, y: 0.50, r: 0.05, bounce: REST_BUMPER },
-        { x: 0.50, y: 0.38, r: 0.05, bounce: REST_BUMPER }
+        { x: 0.38, y: 0.48, r: 0.05, bounce: REST_BUMPER },
+        { x: 0.62, y: 0.48, r: 0.05, bounce: REST_BUMPER },
+        { x: 0.50, y: 0.36, r: 0.05, bounce: REST_BUMPER },
+        { x: 0.21, y: 0.60, r: 0.034, bounce: 1.25 },   // side kickers bat a drifting ball back inward
+        { x: 0.79, y: 0.60, r: 0.034, bounce: 1.25 }
       ],
-      walls: [],
+      walls: [
+        { x1: 0.21, y1: 0.66, x2: 0.31, y2: 0.60, bounce: 1.12 },  // left sling: lobs the ball back up
+        { x1: 0.69, y1: 0.60, x2: 0.79, y2: 0.66, bounce: 1.12 }   // right sling
+      ],
       rule: { type: "static" }
     },
     {
       id: "forehead",
       name: "The Forbidden Forehead",
-      hint: "He's sliding now. Lead the shot or kiss that wig goodbye.",
+      hint: "He's sliding now. Lead the shot, thread the brow posts, or kiss that wig goodbye.",
       gravity: 1.0,
       holder: { x: 0.5, y: 0.16, w: 0.19, h: 0.14, captureSpeed: 0.85 },
       bumpers: [
-        { x: 0.27, y: 0.62, r: 0.055, bounce: 1.3 },   // slingshots: kick upward
-        { x: 0.73, y: 0.62, r: 0.055, bounce: 1.3 }
+        { x: 0.27, y: 0.62, r: 0.055, bounce: 1.3 },    // slingshots: kick upward
+        { x: 0.73, y: 0.62, r: 0.055, bounce: 1.3 },
+        { x: 0.50, y: 0.49, r: 0.05, bounce: REST_BUMPER },   // the third eye -- a central pop
+        { x: 0.355, y: 0.345, r: 0.032, bounce: 1.2 },        // brow posts frame the holder's slide path
+        { x: 0.645, y: 0.345, r: 0.032, bounce: 1.2 }
       ],
-      walls: [],
+      walls: [
+        { x1: 0.21, y1: 0.52, x2: 0.31, y2: 0.46, bounce: 0.9 },  // eyebrow deflectors steer side balls center
+        { x1: 0.69, y1: 0.46, x2: 0.79, y2: 0.52, bounce: 0.9 }
+      ],
       rule: { type: "moveHolder", amp: 0.26, speed: 1.7 }
     },
     {
       id: "grease",
       name: "Gates of Grease",
-      hint: "There's a gate. It opens when it feels like it. Send it through.",
+      hint: "There's a gate. It opens when it feels like it. Ride the rails and send it through clean.",
       gravity: 1.05,
       holder: { x: 0.5, y: 0.15, w: 0.20, h: 0.13, captureSpeed: 0.9 },
       bumpers: [
-        { x: 0.34, y: 0.60, r: 0.05, bounce: REST_BUMPER },
-        { x: 0.66, y: 0.60, r: 0.05, bounce: REST_BUMPER }
+        { x: 0.34, y: 0.58, r: 0.05, bounce: REST_BUMPER },
+        { x: 0.66, y: 0.58, r: 0.05, bounce: REST_BUMPER },
+        { x: 0.50, y: 0.46, r: 0.045, bounce: 1.2 },          // mid pop kicks toward the gate
+        { x: 0.235, y: 0.44, r: 0.03, bounce: 1.15 },         // outer posts
+        { x: 0.765, y: 0.44, r: 0.03, bounce: 1.15 }
       ],
-      walls: [],
+      walls: [
+        { x1: 0.30, y1: 0.31, x2: 0.40, y2: 0.255, bounce: 0.85 },  // approach rails funnel a rising ball into the mouth
+        { x1: 0.70, y1: 0.31, x2: 0.60, y2: 0.255, bounce: 0.85 }
+      ],
       rule: { type: "shutter", openMs: 1150, closedMs: 1250 }
     },
     {
       id: "storm",
       name: "Fart Storm",
-      hint: "The gusts are diegetic. Launch WITH the fart, not against it.",
+      hint: "The gusts are diegetic. The crown floats. Launch WITH the fart, not against it.",
       gravity: 1.1,
       lowGravTop: true,
       holder: { x: 0.5, y: 0.14, w: 0.21, h: 0.13, captureSpeed: 1.05 },
       bumpers: [
-        { x: 0.40, y: 0.55, r: 0.045, bounce: REST_BUMPER },
-        { x: 0.60, y: 0.55, r: 0.045, bounce: REST_BUMPER }
+        { x: 0.40, y: 0.54, r: 0.045, bounce: REST_BUMPER },
+        { x: 0.60, y: 0.54, r: 0.045, bounce: REST_BUMPER },
+        { x: 0.50, y: 0.38, r: 0.042, bounce: REST_BUMPER },  // crown pops: long floaty rallies in the low-grav zone
+        { x: 0.33, y: 0.40, r: 0.04, bounce: 1.25 },
+        { x: 0.67, y: 0.40, r: 0.04, bounce: 1.25 }
       ],
-      walls: [],
+      walls: [
+        { x1: 0.21, y1: 0.34, x2: 0.31, y2: 0.305, bounce: 0.8 },  // wind vanes ride the gust across the crown
+        { x1: 0.69, y1: 0.305, x2: 0.79, y2: 0.34, bounce: 0.8 }
+      ],
       rule: { type: "gust", periodMs: 3600, gustMs: 1300 }
     },
     {
       id: "gauntlet",
       name: "Rat King's Gauntlet",
-      hint: "A shrinking hole. A moving skull. A greasy gate. Good luck, Rat King.",
+      hint: "A shrinking hole. A sliding skull. A greasy gate. A field of posts. Good luck, Rat King.",
       gravity: 1.15,
       holder: { x: 0.5, y: 0.15, w: 0.22, h: 0.13, captureSpeed: 0.85, minW: 0.13 },
       bumpers: [
         { x: 0.30, y: 0.58, r: 0.05, bounce: 1.25 },
         { x: 0.70, y: 0.58, r: 0.05, bounce: 1.25 },
-        { x: 0.50, y: 0.42, r: 0.045, bounce: REST_BUMPER }
+        { x: 0.50, y: 0.50, r: 0.045, bounce: REST_BUMPER },  // central guardian
+        { x: 0.37, y: 0.40, r: 0.03, bounce: 1.2 },           // threading posts
+        { x: 0.63, y: 0.40, r: 0.03, bounce: 1.2 },
+        { x: 0.50, y: 0.30, r: 0.028, bounce: 1.15 }          // a post under the moving mouth -- thread past it
       ],
-      walls: [],
+      walls: [
+        { x1: 0.21, y1: 0.66, x2: 0.31, y2: 0.60, bounce: 1.1 },   // lower slings
+        { x1: 0.69, y1: 0.60, x2: 0.79, y2: 0.66, bounce: 1.1 },
+        { x1: 0.24, y1: 0.37, x2: 0.34, y2: 0.31, bounce: 0.85 },  // upper rails narrow the approach
+        { x1: 0.66, y1: 0.31, x2: 0.76, y2: 0.37, bounce: 0.85 }
+      ],
       rule: { type: "gauntlet", amp: 0.22, speed: 2.0, shrinkMs: 5200, openMs: 1300, closedMs: 1050 }
     }
   ];

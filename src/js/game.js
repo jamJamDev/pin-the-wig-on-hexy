@@ -1832,7 +1832,13 @@
       game.bjBonus += BLACKJACK.WIN_POINTS;
     }
     BLACKJACK.applyResult(g);
-    if (g.complete) { finishBlackjack(true); return; }
+    if (g.complete) {
+      // Clinching the match without dropping a hand banks the sweep bonus, so a
+      // flawless 4-0 tops a 4-1 win -- doing better pays even at the felt.
+      var sweep = BLACKJACK.sweepBonus(g);
+      if (sweep > 0) { game.score += sweep; game.bjBonus += sweep; }
+      finishBlackjack(true); return;
+    }
     if (g.failed) { finishBlackjack(false); return; }
     BLACKJACK.newHand(g);
     bjRender();

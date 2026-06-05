@@ -132,9 +132,9 @@ test("a fixed seed reproduces an identical spin sequence", () => {
 
 test("the bet/spin state machine guards every edge", () => {
   const g = S.createGame(7);
-  S.setLines(g, 1);
-  S.setBet(g, 0);                         // cost = 1
-  assert.equal(S.spinCost(g), 1);
+  S.setLines(g, S.MIN_LINES);
+  S.setBet(g, 0);                         // the fewest lines at the lowest bet
+  assert.equal(S.spinCost(g), S.MIN_LINES * S.BET_TIERS[0]);
 
   // setLines/setBet clamp into range.
   S.setLines(g, 999); assert.equal(g.lines, S.MAX_LINES);
@@ -153,17 +153,17 @@ test("the bet/spin state machine guards every edge", () => {
   // A stake that would push the bankroll past the debt limit no-ops.
   const broke = S.createGame(7);
   broke.credits = 3;
-  S.setLines(broke, S.MAX_LINES); S.setBet(broke, S.BET_TIERS.length - 1);  // cost 750 >> 3+50
+  S.setLines(broke, S.MAX_LINES); S.setBet(broke, S.BET_TIERS.length - 1);  // cost 3000 >> 3+50
   assert.equal(S.canSpin(broke), false, "stake far beyond the debt limit is refused");
   const c = broke.credits, n = broke.spinNum;
   S.spin(broke);
   assert.equal(broke.credits, c, "over-limit spin leaves credits untouched");
   assert.equal(broke.spinNum, n, "over-limit spin does not advance");
 
-  // The minimum spin cost is exactly 1 (one line at the lowest bet).
+  // The minimum spin cost is the fewest lines at the lowest bet.
   const cheap = S.createGame(7);
   S.setLines(cheap, S.MIN_LINES); S.setBet(cheap, 0);
-  assert.equal(S.spinCost(cheap), 1, "cost floor is 1");
+  assert.equal(S.spinCost(cheap), S.MIN_LINES * S.BET_TIERS[0], "cost floor is MIN_LINES at the lowest per-line bet");
 
   // No betting or spinning once the stage has resolved.
   const done = S.createGame(7);
@@ -174,24 +174,36 @@ test("the bet/spin state machine guards every edge", () => {
   assert.equal(done.credits, 2500, "no spin after complete");
 });
 
+test("single-line betting is disabled: the minimum stake is two lines", () => {
+  // A single active line forces every win to the discrete payout floor (the
+  // smallest single-line payout is >= 2x the stake), which overshoots the rig's
+  // near-fair EV target and yields a ~+19%/spin grind to the goal. Two lines is
+  // the floor where the payout ladder brackets the target, so MIN_LINES is 2.
+  assert.ok(S.MIN_LINES >= 2, "single-line play must stay disabled to keep the EV near fair");
+  const g = S.createGame(7);
+  S.setLines(g, 1);
+  assert.ok(g.lines >= 2, "asking for one line clamps up to the two-line floor");
+  assert.ok(S.spinCost(g) >= 2 * S.BET_TIERS[0], "the cheapest spin stakes at least two lines");
+});
+
 test("debt: stake to -DEBT_LIMIT is allowed, beyond it is refused", () => {
   // canSpin lets the bankroll dip exactly to -DEBT_LIMIT, never past it.
   const g = S.createGame(7);
   g.credits = 0;
-  S.setLines(g, 10); S.setBet(g, 2);                 // cost = 10 * 5 = 50 == DEBT_LIMIT
+  S.setLines(g, 5); S.setBet(g, 0);                  // cost = 5 * 10 = 50 == DEBT_LIMIT
   assert.equal(S.spinCost(g), S.DEBT_LIMIT);
   assert.equal(S.canSpin(g), true, "staking exactly to -DEBT_LIMIT is allowed");
 
   const over = S.createGame(7);
   over.credits = 0;
-  S.setLines(over, 11); S.setBet(over, 2);           // cost = 11 * 5 = 55 > 50
+  S.setLines(over, 6); S.setBet(over, 0);            // cost = 6 * 10 = 60 > 50
   assert.equal(S.canSpin(over), false, "staking past -DEBT_LIMIT is refused");
 
-  // A cost-1 spin is affordable even from a zero bankroll (dips to -1).
+  // The smallest spin is affordable even from a zero bankroll (dips the minimum stake into debt).
   const floor = S.createGame(7);
   floor.credits = 0;
-  S.setLines(floor, 1); S.setBet(floor, 0);
-  assert.equal(S.canSpin(floor), true, "the 1-credit spin is always reachable above the limit");
+  S.setLines(floor, S.MIN_LINES); S.setBet(floor, 0);
+  assert.equal(S.canSpin(floor), true, "the minimum spin is always reachable above the limit");
 });
 
 test("debt: a spin still in the red after payout busts; a payout that clears it survives", () => {
@@ -210,8 +222,8 @@ test("debt: a spin still in the red after payout busts; a payout that clears it 
 
   // Lose while staked into debt -> ends in the red -> bust.
   const bust = S.createGame(loseSeed);
-  S.setLines(bust, 1); S.setBet(bust, 0);            // cost 1
-  bust.credits = 0;                                  // stake dips to -1
+  S.setLines(bust, S.MIN_LINES); S.setBet(bust, 0);  // the minimum stake at the lowest bet
+  bust.credits = 0;                                  // stake dips the minimum into the red
   S.spin(bust);
   assert.equal(bust.lastResult.win, false);
   assert.ok(bust.credits < 0, "a lost debt spin ends below zero");
@@ -219,8 +231,8 @@ test("debt: a spin still in the red after payout busts; a payout that clears it 
 
   // Win while staked into debt -> payout clears the overdraft -> survives.
   const saved = S.createGame(winSeed);
-  S.setLines(saved, 1); S.setBet(saved, 0);          // cost 1
-  saved.credits = 0;                                 // stake dips to -1
+  S.setLines(saved, S.MIN_LINES); S.setBet(saved, 0); // the minimum stake at the lowest bet
+  saved.credits = 0;                                 // stake dips the minimum into the red
   S.spin(saved);
   assert.equal(saved.lastResult.win, true);
   assert.ok(saved.credits >= 0, "a winning debt spin claws back to solvent");
@@ -232,18 +244,51 @@ test("debt: a spin still in the red after payout busts; a payout that clears it 
   assert.equal(S.isBust(zero), false, "zero credits is not yet a bust");
 });
 
-test("the slot bonus is bounded: 1000 on completion, 0 on bust, in [0,1000] mid-run", () => {
-  assert.equal(S.maxScore(), 1000);
-  const win = S.createGame(1); win.credits = 2000;
-  assert.equal(S.slotBonus(win), 1000);
-  const over = S.createGame(1); over.credits = 2600;     // overshoot still caps at 1000
-  assert.equal(S.slotBonus(over), 1000);
-  const bust = S.createGame(1); bust.credits = 0;
+test("the slot bonus is graded by peak credits: 10000 at the target, scaled by the best reached", () => {
+  // Every stage tops out at 10000 so each contributes equally to the overall score.
+  assert.equal(S.maxScore(), 10000);
+  const win = S.createGame(1); win.peakCredits = 2000;     // reached the target -> full
+  assert.equal(S.slotBonus(win), 10000);
+  const over = S.createGame(1); over.peakCredits = 2600;   // overshoot still caps at 10000
+  assert.equal(S.slotBonus(over), 10000);
+  const bust = S.createGame(1); bust.peakCredits = 1000;   // never climbed -> 0
   assert.equal(S.slotBonus(bust), 0);
-  const mid = S.createGame(1); mid.credits = 1450;
-  assert.equal(S.slotBonus(mid), 450);
-  const down = S.createGame(1); down.credits = 600;      // below start banks 0, never negative
+  // Doing better pays: a run that peaked at 1900 before busting outscores one that
+  // peaked at 1450, which outscores an instant bust -- monotonic in the best reached.
+  const high = S.createGame(1); high.peakCredits = 1900;
+  const mid = S.createGame(1); mid.peakCredits = 1450;
+  assert.equal(S.slotBonus(high), 9000);
+  assert.equal(S.slotBonus(mid), 4500);
+  assert.ok(S.slotBonus(high) > S.slotBonus(mid) && S.slotBonus(mid) > S.slotBonus(bust));
+  const down = S.createGame(1); down.peakCredits = 600;    // below start banks 0, never negative
   assert.equal(S.slotBonus(down), 0);
+});
+
+test("peak credits tracks the high-water mark across spins, so a bust still banks partial progress", () => {
+  // Hard contract (deterministic, asserted every step of every walk): peakCredits
+  // equals the running max of credits -- the seam slotBonus scores off, so the
+  // score reflects the best the player reached, not the final (terminal) bankroll.
+  // Then demonstrate the peak actually engages above the deal: walked across many
+  // seeds so the climb never hinges on one seed's luck (robust if the rig is retuned).
+  let anyClimbed = false;
+  for (let seed = 1; seed <= 12; seed++) {
+    const g = S.createGame(seed);
+    S.setLines(g, S.MIN_LINES);       // minimum stake -> always affordable until a bust
+    S.setBet(g, 0);
+    assert.equal(g.peakCredits, S.START_CREDITS);
+    let observedMax = g.credits;
+    let guard = 0;
+    while (!S.isComplete(g) && !S.isBust(g) && guard++ < 5000) {
+      S.spin(g);
+      observedMax = Math.max(observedMax, g.credits);
+      assert.equal(g.peakCredits, observedMax, "seed " + seed + ": peakCredits is the running max of credits");
+    }
+    if (g.peakCredits > S.START_CREDITS) {
+      anyClimbed = true;
+      assert.ok(S.slotBonus(g) > 0, "seed " + seed + ": climbing above the deal banks a positive score");
+    }
+  }
+  assert.ok(anyClimbed, "across 12 seeds at least one walk climbs above the deal (peak engages)");
 });
 
 test("end-to-end: every seed resolves to complete or bust without error", () => {
@@ -254,9 +299,12 @@ test("end-to-end: every seed resolves to complete or bust without error", () => 
     for (let idx = S.BET_TIERS.length - 1; idx >= 0; idx--) {
       if (S.MAX_LINES * S.BET_TIERS[idx] <= g.credits) { S.setBet(g, idx); return; }
     }
-    // Can't afford MAX_LINES even at the minimum tier: stake the whole bankroll.
-    S.setLines(g, Math.max(S.MIN_LINES, Math.min(S.MAX_LINES, g.credits)));
+    // Can't afford MAX_LINES even at the minimum tier: stake as many lines as the
+    // bankroll plus the debt allowance covers at the lowest per-line bet, so a legal
+    // spin is always available and the walk still resolves.
     S.setBet(g, 0);
+    const maxLines = Math.floor((g.credits + S.DEBT_LIMIT) / S.BET_TIERS[0]);
+    S.setLines(g, Math.max(S.MIN_LINES, Math.min(S.MAX_LINES, maxLines)));
   }
   for (let seed = 1; seed <= 60; seed++) {
     const g = S.createGame(seed);

@@ -37,12 +37,15 @@
   var TAU = Math.PI * 2;
 
   // ---------- Scoring ----------
-  var BULLSEYE = 750;  // struck the bonus zone dead-center of the green tab
-  var PERFECT = 400;   // tab struck near-center
-  var GOOD = 180;      // tab struck within the green arc
-  var KIBBLE = -120;   // struck the decoy "cheap kibble" arc -- she won't touch it
+  // Tuned so a flawless run (every required strike a bullseye, every can opened)
+  // banks exactly 10000 -- the same per-stage cap every leg of the run tops out
+  // at, so each contributes equally to the overall score (see maxScore).
+  var BULLSEYE = 1000; // struck the bonus zone dead-center of the green tab
+  var PERFECT = 540;   // tab struck near-center
+  var GOOD = 240;      // tab struck within the green arc
+  var KIBBLE = -160;   // struck the decoy "cheap kibble" arc -- she won't touch it
   var WHIFF = 0;       // struck bare rim
-  var OPEN_BONUS = 250; // banked when a can is fully opened
+  var OPEN_BONUS = 200; // banked when a can is fully opened
 
   // The bonus zone is the central fraction of the green tab's half-width. The
   // shell draws it (FEED.BULLSEYE_FRAC) so the visual and the scoring agree.
@@ -120,27 +123,27 @@
     {
       key: "crack", name: "Just Crack It",
       hint: "Tap or press Space when the pointer hits the green tab. Bonus for the yellow. That's the whole game, gamer.",
-      rule: { sweep: 3.5, notch: 0.38, drift: 0, hits: 1, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.078 },
+      rule: { sweep: 3.5, notch: 0.30, drift: 0, hits: 1, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.078 },
     },
     {
       key: "flip", name: "Second Thoughts",
       hint: "The opener keeps reversing. Read the flip -- don't just mash a rhythm.",
-      rule: { sweep: 4.0, notch: 0.36, drift: 0, hits: 2, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.082, flip: 1.25 },
+      rule: { sweep: 4.0, notch: 0.29, drift: 0, hits: 2, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.082, flip: 1.25 },
     },
     {
       key: "slip", name: "Moving Target",
       hint: "The tab won't sit still. Neither will she.",
-      rule: { sweep: 4.1, notch: 0.38, drift: 1.1, hits: 1, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.087 },
+      rule: { sweep: 4.1, notch: 0.30, drift: 1.1, hits: 1, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.087 },
     },
     {
       key: "swat", name: "Cat Got Your Can",
       hint: "She lunges at the can -- watch the tell, the rim jolts when she connects.",
-      rule: { sweep: 4.5, notch: 0.34, drift: 0.9, hits: 2, hazard: "lunge", every: 1.4, jolt: 0.8, kibble: 0, drain: 0.098 },
+      rule: { sweep: 4.5, notch: 0.27, drift: 0.9, hits: 2, hazard: "lunge", every: 1.4, jolt: 0.8, kibble: 0, drain: 0.098 },
     },
     {
       key: "diva", name: "The Spoiled Diva",
       hint: "Three pops, a reversing wandering tab, a swatting paw, and she snubs cheap kibble. Spoil her.",
-      rule: { sweep: 5.5, notch: 0.30, drift: 1.4, hits: 3, hazard: "both", every: 1.1, jolt: 1.0, kibble: 0.30, drain: 0.108, flip: 1.15 },
+      rule: { sweep: 5.5, notch: 0.24, drift: 1.4, hits: 3, hazard: "both", every: 1.1, jolt: 1.0, kibble: 0.30, drain: 0.108, flip: 1.15 },
     },
   ];
 

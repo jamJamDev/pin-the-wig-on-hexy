@@ -34,7 +34,9 @@
   var ROUNDS_TO_WIN = 4;    // hands you must win to be crowned GOD GAMER
   var LOSSES_ALLOWED = ROUNDS_TOTAL - ROUNDS_TO_WIN; // 1 -- a second loss is elimination
   var DEALER_STANDS_ON = 17; // dealer draws while its total is below this
-  var WIN_POINTS = 1500;    // score banked per hand won off the True God Gamer
+  var WIN_POINTS = 2000;    // score banked per hand won off the True God Gamer
+  var SWEEP_BONUS = 2000;   // extra banked for a flawless 4-0 match (zero losses) -- the
+                            // "doing better" reward: a clean sweep tops a 4-1 win
 
   var RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
   var SUITS = ["S", "H", "D", "C"];   // spade, heart, diamond, club
@@ -200,9 +202,17 @@
   function isComplete(game) { return !!game.complete; }
   function isFailed(game) { return !!game.failed; }
 
-  // Most points a run can bank at blackjack: a flawless 4-win match. Mirrors
-  // PINBALL.maxScore() so the rank ladder's denominator stays bounded.
-  function maxScore() { return ROUNDS_TO_WIN * WIN_POINTS; }
+  // The sweep reward: a match clinched without dropping a single hand banks an
+  // extra SWEEP_BONUS on top of the four wins. Zero for any match still in
+  // progress or won 4-1, so a flawless run scores strictly higher than a lossy one.
+  function sweepBonus(game) {
+    return (game.complete && game.roundsLost === 0) ? SWEEP_BONUS : 0;
+  }
+
+  // Most points a run can bank at blackjack: a flawless 4-0 match (four wins plus
+  // the sweep bonus). Each stage's maxScore() tops out at the same 10000 so every
+  // leg contributes equally to the overall score and the rank ladder's denominator.
+  function maxScore() { return ROUNDS_TO_WIN * WIN_POINTS + SWEEP_BONUS; }
 
   return {
     ROUNDS_TOTAL: ROUNDS_TOTAL,
@@ -210,6 +220,8 @@
     LOSSES_ALLOWED: LOSSES_ALLOWED,
     DEALER_STANDS_ON: DEALER_STANDS_ON,
     WIN_POINTS: WIN_POINTS,
+    SWEEP_BONUS: SWEEP_BONUS,
+    sweepBonus: sweepBonus,
     maxScore: maxScore,
     RANKS: RANKS,
     SUITS: SUITS,
