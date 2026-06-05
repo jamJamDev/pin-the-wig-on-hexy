@@ -3,14 +3,22 @@
 Mirrors the client ranking rules in ``src/js/leaderboard.js`` -- entries sort by
 score descending, ties break by submission time ascending (first to a score keeps
 the higher slot), and the board is capped at the top ``MAX_ENTRIES``. The score
-is the full run total (base rounds + pinball finale), so a GOD GAMER still carries
-a competitive number.
+is the full run total (base rounds + the four finale stages).
+
+A set of initials is OWNED by the first player to claim it: the board keeps one
+row per initials, bound to a hash of that player's secret owner token. The owner
+may raise their own score; a submission for the same initials from a different
+owner is refused (``OwnershipError`` -> 403). The owner token is never returned
+by the API -- only its hash is stored, and ``_public`` strips even that before a
+row leaves the server, so the board cannot be used to discover an owner's token.
 
 The pure helpers (``sanitize_initials``, ``coerce_score``, ``insert_sorted``) are
 validated directly in tests. ``LeaderboardStore`` adds the I/O shell: a lock so
 the ``ThreadingHTTPServer`` cannot interleave read-modify-write, and an atomic
 temp-then-rename so a crash mid-write never corrupts the board. Stdlib only.
 """
+import hashlib
+import hmac
 import json
 import os
 import threading
@@ -18,9 +26,18 @@ import time
 
 MAX_ENTRIES = 100
 INITIALS_LEN = 3
-# A run's score is base rounds (10 x 1000) plus the pinball finale; this ceiling
-# sits comfortably above any real total and rejects absurd/forged submissions.
-SCORE_MAX = 10_000_000
+# True ceiling for a run: base rounds (10 x 1000) plus the four finale stages
+# (Feed Molly, pinball, blackjack, slots), each capped at 10000 -> 50000. No
+# legitimate run exceeds this, so it rejects inflated/forged submissions.
+SCORE_MAX = 50_000
+# A GOD GAMER must clear the slot finale, which alone banks exactly 10000, so
+# every crowned run scores at least this. A claimed god flag below the floor is
+# not a real victory and is dropped (the score itself is still recorded).
+GOD_MIN = 10_000
+
+
+class OwnershipError(Exception):
+    """A submission targets initials already owned by a different player."""
 
 
 def sanitize_initials(raw):
@@ -55,6 +72,36 @@ def coerce_score(raw):
     if n <= 0:  # zero, negatives, and sub-1 fractions floored to 0
         return None
     return n
+
+
+def hash_owner(token):
+    """SHA-256 hex of an owner token, or None for a blank/missing token."""
+    if not token:
+        return None
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+
+
+def _public(entry):
+    """A board row safe to hand to clients: never leak the owner hash (the
+    binding that proves ownership) or the legacy client id."""
+    return {k: v for k, v in entry.items() if k not in ("owner_hash", "client_id")}
+
+
+def _collapse_by_initials(entries):
+    """One row per name, keeping each name's best (score desc, ts asc).
+
+    Legacy/edited data from the old per-client scheme can hold several rows for
+    one name; collapsing on every write heals the whole board to one-row-per-name,
+    not just for the initials being submitted.
+    """
+    best = {}
+    for e in entries:
+        name = e.get("initials")
+        cur = best.get(name)
+        if cur is None or (e.get("score", 0), -e.get("ts", 0)) > (
+                cur.get("score", 0), -cur.get("ts", 0)):
+            best[name] = e
+    return list(best.values())
 
 
 def insert_sorted(entries, entry, max_entries=MAX_ENTRIES):
@@ -102,22 +149,29 @@ class LeaderboardStore:
         os.replace(tmp, self.path)  # atomic on POSIX
 
     def top(self):
-        """Current board, sorted and capped (read-only)."""
+        """Current board, sorted, capped, and stripped of owner secrets."""
         with self._lock:
             entries = self._load_locked()
-        return sorted(entries, key=lambda e: (-e["score"], e["ts"]))[: self.max_entries]
+        ranked = sorted(entries, key=lambda e: (-e["score"], e["ts"]))[: self.max_entries]
+        return [_public(e) for e in ranked]
 
-    def add(self, initials, score, god=False, ts=None, client_id=None):
-        """Validate, upsert, persist, and return (entry, rank, board, improved).
+    def add(self, initials, score, god=False, owner_token=None, ts=None):
+        """Validate, claim/upsert by initials, persist; return (entry, rank,
+        board, improved) with every row stripped of owner secrets.
 
-        With a ``client_id`` the board keeps **one row per player** at their best
-        score: a higher score replaces the standing row, a lower-or-equal one
-        leaves it untouched (``improved=False``) so a weak run never knocks a good
-        score off. Without a ``client_id`` every submission is its own row (the
-        original behaviour). ``rank`` is the resulting 1-based position; it can
-        exceed the cap when a full board edged the run out. Raises ValueError on
-        invalid initials or score so the caller can answer 400 -- a bad
-        submission must fail loudly, not be silently coerced.
+        The board holds **one row per set of initials**, owned by the first
+        player to claim it (the hash of their secret ``owner_token``). The owner
+        may raise their own score: a higher score replaces the standing row, a
+        lower-or-equal one leaves it untouched (``improved=False``) so a weak run
+        never knocks a good score off. A submission for the same initials from a
+        different owner raises ``OwnershipError`` (-> 403). A pre-ownership legacy
+        row (no ``owner_hash``) is claimable and binds to the first valid owner.
+
+        ``god`` is honoured only when the score clears ``GOD_MIN`` -- a claimed
+        crown below a real victory's floor is dropped while the score still
+        counts. ``rank`` is the resulting 1-based position; it can exceed the cap
+        when a full board edged the run out. Raises ValueError on invalid
+        initials, score, or a missing owner token so the caller answers 400.
         """
         clean = sanitize_initials(initials)
         if len(clean) != INITIALS_LEN:
@@ -125,32 +179,41 @@ class LeaderboardStore:
         clean_score = coerce_score(score)
         if clean_score is None:
             raise ValueError("score must be a positive number within range")
-        cid = str(client_id) if client_id else None
+        owner = hash_owner(owner_token)
+        if owner is None:
+            raise ValueError("a submission must carry an owner token")
+        accept_god = bool(god) and clean_score >= GOD_MIN
         with self._lock:
             entries = self._load_locked()
-            # Every row for this player (legacy/edited data may hold more than one);
-            # collapse to a single best row, matching the JS client's upsert exactly.
-            mine = [e for e in entries if cid and e.get("client_id") == cid]
-            others = [e for e in entries if not (cid and e.get("client_id") == cid)]
+            # Collapse any rows sharing these initials (legacy/edited data may hold
+            # more than one) to the single best, and key the board on initials.
+            mine = [e for e in entries if e.get("initials") == clean]
+            others = _collapse_by_initials(
+                e for e in entries if e.get("initials") != clean)
             best = max(mine, key=lambda e: e["score"]) if mine else None
+            if best is not None:
+                owned_by = best.get("owner_hash")
+                if owned_by is not None and not hmac.compare_digest(owned_by, owner):
+                    raise OwnershipError("those initials are taken")
             if best is not None and clean_score <= best["score"]:
-                # Not a personal best -- the standing row holds. Persist only if we
-                # had to collapse duplicate rows; otherwise the board is unchanged.
-                board = insert_sorted(others, best, self.max_entries)
-                if len(mine) > 1:
-                    self._write_locked(board)
-                rank = rank_of(others, best["score"])
-                return best, rank, board, False
-            # New player, or a new personal best: one row supersedes any prior ones.
-            entry = {
-                "initials": clean,
-                "score": clean_score,
-                "god": bool(god),
-                "ts": int(ts if ts is not None else time.time() * 1000),
-            }
-            if cid:
-                entry["client_id"] = cid
-            rank = rank_of(others, clean_score)  # vs the board minus this player's old rows
+                # Not a personal best -- keep the standing row, but bind it to this
+                # now-proven owner (claims a legacy row) and dedupe to one row.
+                entry = dict(best)
+                entry["owner_hash"] = owner
+                entry.pop("client_id", None)
+                entry["god"] = bool(entry.get("god")) and entry.get("score", 0) >= GOD_MIN
+                improved = False
+            else:
+                # New initials, or the owner raising their own score.
+                entry = {
+                    "initials": clean,
+                    "score": clean_score,
+                    "god": accept_god,
+                    "ts": int(ts if ts is not None else time.time() * 1000),
+                    "owner_hash": owner,
+                }
+                improved = True
+            rank = rank_of(others, entry["score"])  # vs the board minus this name
             board = insert_sorted(others, entry, self.max_entries)
             self._write_locked(board)
-        return entry, rank, board, True
+        return _public(entry), rank, [_public(e) for e in board], improved

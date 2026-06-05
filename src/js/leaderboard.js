@@ -87,45 +87,45 @@
     return next.slice(0, cap);
   }
 
-  // The player's standing entry, by their anonymous browser id. The id is a
-  // best-effort identity (one row per browser profile, not per person) -- a
-  // falsy id never matches, so anonymous runs are each their own row.
-  function findByClient(entries, clientId) {
-    if (!clientId) return null;
+  // The standing entry for a set of initials. The board keeps one row per name;
+  // a falsy name never matches. Ownership itself is enforced server-side -- this
+  // is the client mirror used only to pre-check qualification for display.
+  function findByInitials(entries, initials) {
+    if (!initials) return null;
     var list = entries || [];
     for (var i = 0; i < list.length; i++) {
-      if (list[i].client_id === clientId) return list[i];
+      if (list[i].initials === initials) return list[i];
     }
     return null;
   }
 
-  // Upsert keeping one row per client at their best score (mirrors the server).
-  // A higher score replaces the standing row; a lower-or-equal one leaves the
-  // board unchanged. Pure -- returns a new capped, sorted board.
-  function upsert(entries, entry, max) {
+  // Upsert keeping one row per set of initials at its best score (mirrors the
+  // server's claim-by-initials). A higher score replaces the standing row; a
+  // lower-or-equal one leaves the board unchanged. Pure -- new capped, sorted.
+  function upsertByInitials(entries, entry, max) {
     var cap = max == null ? MAX_ENTRIES : max;
-    var cid = entry.client_id;
+    var name = entry.initials;
     var list = entries || [];
-    var existing = findByClient(list, cid);
+    var existing = findByInitials(list, name);
     if (existing && existing.score >= entry.score) {
-      return sortEntries(list).slice(0, cap); // their best holds -> unchanged
+      return sortEntries(list).slice(0, cap); // its best holds -> unchanged
     }
     var kept = list.filter(function (e) {
-      return !(cid && e.client_id === cid); // drop this player's stale row, if any
+      return !(name && e.initials === name); // drop this name's stale row, if any
     });
     return sortEntries(kept.concat([entry])).slice(0, cap);
   }
 
-  // Would this run earn or improve THIS client's slot in the top `max`? A real
-  // positive score that beats the player's own standing entry (if any) and lands
-  // within the cap once that stale entry is set aside.
-  function qualifiesForClient(entries, score, clientId, max) {
+  // Would this run earn or improve the slot held by `initials` in the top `max`?
+  // A real positive score that beats that name's standing entry (if any) and
+  // lands within the cap once that stale entry is set aside.
+  function qualifiesForInitials(entries, score, initials, max) {
     var cap = max == null ? MAX_ENTRIES : max;
     if (!isFinite(score) || score <= 0) return false;
-    var existing = findByClient(entries, clientId);
+    var existing = findByInitials(entries, initials);
     if (existing && score <= existing.score) return false;
     var others = (entries || []).filter(function (e) {
-      return !(clientId && e.client_id === clientId);
+      return !(initials && e.initials === initials);
     });
     return rankOf(others, score) <= cap;
   }
@@ -139,8 +139,8 @@
     rankOf: rankOf,
     qualifies: qualifies,
     insert: insert,
-    findByClient: findByClient,
-    upsert: upsert,
-    qualifiesForClient: qualifiesForClient,
+    findByInitials: findByInitials,
+    upsertByInitials: upsertByInitials,
+    qualifiesForInitials: qualifiesForInitials,
   };
 });

@@ -66,44 +66,66 @@ test("insert returns a new sorted board capped to max", () => {
   assert.deepEqual(capped.map((e) => e.initials), ["AAA", "BBB"]);
 });
 
-// Per-player rows keyed by an anonymous browser id (client_id).
-const C = (initials, score, ts, cid) => ({ initials, score, ts, god: false, client_id: cid });
+// Distinct 3-letter initials for an index, so a full board has one row per name.
+const NAME = (i) =>
+  "A" + String.fromCharCode(65 + Math.floor(i / 26)) + String.fromCharCode(65 + (i % 26));
 
-test("findByClient returns the player's standing row, or null", () => {
-  const board = [C("AAA", 500, 1, "c1"), C("BBB", 300, 2, "c2")];
-  assert.equal(LB.findByClient(board, "c2").initials, "BBB");
-  assert.equal(LB.findByClient(board, "c9"), null);
-  assert.equal(LB.findByClient(board, ""), null);   // anonymous never matches
-  assert.equal(LB.findByClient(board, null), null);
+test("findByInitials returns the standing row for a name, or null", () => {
+  const board = [E("AAA", 500, 1), E("BBB", 300, 2)];
+  assert.equal(LB.findByInitials(board, "BBB").score, 300);
+  assert.equal(LB.findByInitials(board, "ZZZ"), null);
+  assert.equal(LB.findByInitials(board, ""), null);   // empty never matches
+  assert.equal(LB.findByInitials(board, null), null);
 });
 
-test("upsert keeps one row per client at their best score", () => {
-  let board = [C("AAA", 500, 1, "c1")];
+test("upsertByInitials keeps one row per name at its best score", () => {
+  let board = [E("AAA", 500, 1)];
   // higher score replaces the standing row -> still one row
-  board = LB.upsert(board, C("AAA", 800, 2, "c1"), 100);
+  board = LB.upsertByInitials(board, E("AAA", 800, 2), 100);
   assert.equal(board.length, 1);
   assert.equal(board[0].score, 800);
   // lower score leaves the best untouched
-  board = LB.upsert(board, C("AAA", 300, 3, "c1"), 100);
+  board = LB.upsertByInitials(board, E("AAA", 300, 3), 100);
   assert.equal(board.length, 1);
   assert.equal(board[0].score, 800);
-  // a different client adds its own row
-  board = LB.upsert(board, C("BBB", 100, 4, "c2"), 100);
+  // a different name adds its own row
+  board = LB.upsertByInitials(board, E("BBB", 100, 4), 100);
   assert.equal(board.length, 2);
-  // anonymous (no client_id) submissions are each their own row
-  let anon = LB.upsert([C("AAA", 100, 1, undefined)], E("AAA", 200, 2), 100);
-  assert.equal(anon.length, 2);
 });
 
-test("qualifiesForClient: beat your own best, and land within the cap", () => {
-  const board = [C("AAA", 500, 1, "c1"), C("BBB", 300, 2, "c2")];
-  assert.ok(LB.qualifiesForClient(board, 900, "c1", 100));  // new personal best
-  assert.ok(!LB.qualifiesForClient(board, 400, "c1", 100)); // below own 500 -> no
-  assert.ok(!LB.qualifiesForClient(board, 500, "c1", 100)); // ties own best -> no
-  assert.ok(LB.qualifiesForClient(board, 50, "c9", 100));   // new player, room on board
-  // full board: a newcomer must beat the lowest; the player's own stale row is set aside
+test("qualifiesForInitials: beat your own best, and land within the cap", () => {
+  const board = [E("AAA", 500, 1), E("BBB", 300, 2)];
+  assert.ok(LB.qualifiesForInitials(board, 900, "AAA", 100));  // new personal best
+  assert.ok(!LB.qualifiesForInitials(board, 400, "AAA", 100)); // below own 500 -> no
+  assert.ok(!LB.qualifiesForInitials(board, 500, "AAA", 100)); // ties own best -> no
+  assert.ok(LB.qualifiesForInitials(board, 50, "ZZZ", 100));   // new name, room on board
+  // full board: a newcomer must beat the lowest; the name's own stale row is set aside
   const full = [];
-  for (let i = 0; i < LB.MAX_ENTRIES; i++) full.push(C("XXX", 1000 - i, i, "f" + i)); // 1000..901
-  assert.ok(!LB.qualifiesForClient(full, 800, "new", LB.MAX_ENTRIES)); // below the floor
-  assert.ok(LB.qualifiesForClient(full, 1500, "f50", LB.MAX_ENTRIES)); // own row ignored, tops all
+  for (let i = 0; i < LB.MAX_ENTRIES; i++) full.push(E(NAME(i), 1000 - i, i)); // 1000..901
+  assert.ok(!LB.qualifiesForInitials(full, 800, "NEW", LB.MAX_ENTRIES)); // below the floor
+  assert.ok(LB.qualifiesForInitials(full, 1500, NAME(50), LB.MAX_ENTRIES)); // own row ignored, tops all
+});
+
+// Submission signing must match the Python server byte-for-byte, or every real
+// POST is rejected. The vector below is mirrored in tests/test_submission_token.py.
+const SUB = require("../src/js/submission.js");
+
+test("submission signing matches the shared cross-language vector", async () => {
+  const fields = {
+    initials: "ABC", score: 12345, god: true,
+    nonce: "00112233445566778899aabbccddeeff", ts: 1700000000000,
+    owner: "owner-token-fixed-0001",
+  };
+  const sig = await SUB.sign(fields);
+  assert.equal(sig, "60a7b02b1cf63a97ddafc6d22c9d2e5c0991ca7cd15b883974f816e1867a514c");
+  // flipping any signed field changes the signature
+  const flipped = await SUB.sign(Object.assign({}, fields, { score: 12346 }));
+  assert.notEqual(flipped, sig);
+});
+
+test("newNonce yields distinct hex tokens", () => {
+  const a = SUB.newNonce();
+  const b = SUB.newNonce();
+  assert.match(a, /^[0-9a-f]{32}$/);
+  assert.notEqual(a, b);
 });

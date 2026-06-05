@@ -36,10 +36,21 @@ fi
 
 echo "=== probing over the internal network (from the api container) ==="
 docker compose -p "$PROJECT" exec -T api python3 - <<'PY'
-import json, sys, urllib.error, urllib.parse, urllib.request
+import json, sys, time, urllib.error, urllib.parse, urllib.request
 
 BASE = "http://caddy:8080"
 fails = []
+
+sys.path.insert(0, "/app/scripts")
+import submission_token as T  # the same signer the API verifies against
+
+
+def signed(initials, score, god, owner, nonce):
+    """A POST body carrying a valid HMAC signature, as a real client would send."""
+    ts = int(time.time() * 1000)
+    sig = T.sign(initials, score, god, nonce, ts, owner)
+    return json.dumps({"initials": initials, "score": score, "god": god,
+                       "nonce": nonce, "ts": ts, "owner": owner, "sig": sig}).encode()
 
 
 def req(path, method="GET", data=None, headers=None):
@@ -113,9 +124,8 @@ cc = hd.get("Cache-Control", "")
 check("API GET -> 200", st == 200, "got %s" % st)
 check("API Cache-Control no-store", "no-store" in cc, cc)
 
-# 7. API POST accepts a valid score
-payload = json.dumps({"initials": "VFY", "score": 4242, "god": False,
-                      "client_id": "verify-bot"}).encode()
+# 7. API POST accepts a valid signed score
+payload = signed("VFY", 4242, False, "verify-owner", "verify-nonce-1")
 st, _, body = req("/api/leaderboard", method="POST", data=payload,
                   headers={"Content-Type": "application/json"})
 ok = False
@@ -133,8 +143,7 @@ check("API POST malformed -> 400", st == 400, "got %s" % st)
 # 9. rate limiter trips under a flood
 codes = []
 for i in range(14):
-    p = json.dumps({"initials": "FLD", "score": 1000 + i,
-                    "client_id": "verify-flood"}).encode()
+    p = signed("FLD", 1000 + i, False, "verify-flood-owner", "flood-nonce-%d" % i)
     s, _, _ = req("/api/leaderboard", method="POST", data=p,
                   headers={"Content-Type": "application/json"})
     codes.append(s)

@@ -16,8 +16,8 @@
   const DEV_PINBALL = /[?&#]pinball\b/.test(location.search + location.hash);
   const DEV_BLACKJACK = /[?&#]blackjack\b/.test(location.search + location.hash);
   const DEV_SLOTS = /[?&#]slots\b/.test(location.search + location.hash);
-  // "?feedmolly" drops straight into the Feed Molly bonus for tuning.
-  const DEV_FEEDMOLLY = /[?&#]feedmolly\b/.test(location.search + location.hash);
+  // "?feedmolly" (or "?molly") drops straight into the Feed Molly bonus for tuning.
+  const DEV_FEEDMOLLY = /[?&#](?:feedmolly|molly)\b/.test(location.search + location.hash);
   const BEST_KEY = "ptwoh.best";
   const MUTE_KEY = "ptwoh.muted";
   const LISTENED_KEY = "ptwoh.music.listenedFiles";
@@ -25,7 +25,7 @@
   const ACH_KEY = "ptwoh.achievements";
   const MUSIC_VOL_KEY = "ptwoh.music.vol";
   const INITIALS_KEY = "ptwoh.initials";   // remembered 3-letter tag
-  const CLIENT_KEY = "ptwoh.clientId";     // anonymous per-browser id -> one leaderboard row
+  const OWNER_KEY = "ptwoh.ownerToken";    // secret -> proves ownership of this browser's initials
   const LB_API = "api/leaderboard";        // same-origin; served by scripts/dev_server.py
   const DEFAULT_MUSIC_VOL = 0.5;   // radio starts at half volume
   const RADIO_ANCHOR_MS = 0;   // Unix epoch -- shared anchor so every visitor is in sync
@@ -78,6 +78,7 @@
   const RADIO = window.PTWOHRadio || null;
   const ACH = window.PTWOHAchievements || null;
   const LBOARD = window.PTWOHLeaderboard || null;
+  const SUBMIT = window.PTWOHSubmission || null;  // signs leaderboard POSTs
 
   // Anchor geometry, expressed as fractions of each sprite's own box.
   // Tuned for assets/bald_no_bg.png (448x544) + assets/wig.png (497x450).
@@ -3444,19 +3445,23 @@
   // competes, so a GOD GAMER still ranks by their number. Soft-guarded like the radio:
   // a missing module or an unreachable server hides the feature, never breaks the game.
   let lbEntries = [];        // last-known board (newest fetch or POST response)
-  let lbClientId = null;     // this browser's anonymous id
+  let lbOwnerToken = null;   // this browser's secret -> proves ownership of its initials
+  let lbMyInitials = "";     // initials this browser owns (highlighted on the board)
   let lbPendingScore = 0;    // score awaiting submission on the game-over screen
   let lbPendingGod = false;
   let lbSubmitting = false;  // guard against double-submit
 
-  function getClientId() {
+  // The secret that proves this browser owns whatever initials it claims. Kept
+  // local and only ever sent in a POST body (never returned by the API), so no
+  // other player can discover it and hijack the name.
+  function getOwnerToken() {
     let id = null;
-    try { id = localStorage.getItem(CLIENT_KEY); } catch (_) {}
+    try { id = localStorage.getItem(OWNER_KEY); } catch (_) {}
     if (!id) {
       id = (window.crypto && crypto.randomUUID)
         ? crypto.randomUUID()
-        : "c-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
-      try { localStorage.setItem(CLIENT_KEY, id); } catch (_) {}
+        : "o-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+      try { localStorage.setItem(OWNER_KEY, id); } catch (_) {}
     }
     return id;
   }
@@ -3468,7 +3473,7 @@
       if (el.btnOverLeaderboard) show(el.btnOverLeaderboard, false);
       return;
     }
-    lbClientId = getClientId();
+    lbOwnerToken = getOwnerToken();
     if (el.btnLeaderboard) el.btnLeaderboard.addEventListener("click", () => { sfxClick(); openLeaderboard(); });
     if (el.btnOverLeaderboard) el.btnOverLeaderboard.addEventListener("click", () => { sfxClick(); openLeaderboard(); });
     el.btnLbClose.addEventListener("click", () => { sfxClick(); closeLeaderboard(); });
@@ -3482,7 +3487,10 @@
     });
     try {
       const saved = localStorage.getItem(INITIALS_KEY);
-      if (saved) el.lbInitials.value = LBOARD.sanitizeInitials(saved);
+      if (saved) {
+        lbMyInitials = LBOARD.sanitizeInitials(saved);
+        el.lbInitials.value = lbMyInitials;
+      }
     } catch (_) {}
     // Warm the cache so the panel and the game-over gate respond instantly.
     fetchLeaderboard();
@@ -3528,7 +3536,7 @@
       const li = document.createElement("li");
       li.className = "lb-row";
       const mine = (highlightTs != null && e.ts === highlightTs) ||
-                   (lbClientId && e.client_id === lbClientId);
+                   (lbMyInitials && e.initials === lbMyInitials);
       if (mine) li.classList.add("is-me");
       const rank = document.createElement("span");
       rank.className = "lb-rank";
@@ -3583,7 +3591,7 @@
 
   // 1-based position this run would take, with the player's own stale row set aside.
   function lbRankForDisplay(entries, score) {
-    const others = (entries || []).filter((e) => !(lbClientId && e.client_id === lbClientId));
+    const others = (entries || []).filter((e) => !(lbMyInitials && e.initials === lbMyInitials));
     return LBOARD.rankOf(others, score);
   }
 
@@ -3602,14 +3610,14 @@
         setLbStatus("", false);
         return;
       }
-      if (LBOARD.qualifiesForClient(entries, score, lbClientId, LBOARD.MAX_ENTRIES)) {
+      if (LBOARD.qualifiesForInitials(entries, score, lbMyInitials, LBOARD.MAX_ENTRIES)) {
         const rank = lbRankForDisplay(entries, score);
         el.lbEntryPrompt.textContent = "You cracked the Top 100 -- projected #" + rank + "! Enter your initials:";
         show(el.lbEntryForm, true);
         setLbStatus("", false);
         try { el.lbInitials.focus(); el.lbInitials.select(); } catch (_) {}
       } else {
-        const existing = LBOARD.findByClient(entries, lbClientId);
+        const existing = LBOARD.findByInitials(entries, lbMyInitials);
         el.lbEntryPrompt.textContent = existing
           ? "That run didn't beat your best (" + fmtScoreLB(existing.score) + "). Your spot stands."
           : "So close -- that score didn't crack the Top 100.";
@@ -3620,6 +3628,10 @@
 
   async function submitInitials() {
     if (!LBOARD || lbSubmitting) return;
+    if (!SUBMIT) {
+      setLbStatus("Can't submit on this browser (signing unavailable).", true);
+      return;
+    }
     const initials = LBOARD.sanitizeInitials(el.lbInitials.value);
     if (!LBOARD.validInitials(initials)) {
       setLbStatus("Enter three letters (A-Z).", true);
@@ -3629,15 +3641,36 @@
     lbSubmitting = true;
     el.btnLbSubmit.disabled = true;
     setLbStatus("Saving...", false);
+    const prevMyInitials = lbMyInitials;
+    lbMyInitials = initials;   // highlight this name once it lands
     try { localStorage.setItem(INITIALS_KEY, initials); } catch (_) {}
     try {
+      // Sign the run so the server can reject unsigned/forged/replayed POSTs.
+      const fields = {
+        initials, score: lbPendingScore, god: lbPendingGod,
+        nonce: SUBMIT.newNonce(), ts: Date.now(), owner: lbOwnerToken,
+      };
+      const sig = await SUBMIT.sign(fields);
       const res = await fetch(LB_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initials, score: lbPendingScore, god: lbPendingGod, client_id: lbClientId }),
+        body: JSON.stringify(Object.assign({}, fields, { sig })),
       });
       let data = {};
       try { data = await res.json(); } catch (_) {}
+      if (res.status === 403 && data && /taken/i.test(data.error || "")) {
+        // Those initials belong to another player's owner token; undo the
+        // optimistic local claim so the board never highlights a stranger's row.
+        lbMyInitials = prevMyInitials;
+        try {
+          if (prevMyInitials) localStorage.setItem(INITIALS_KEY, prevMyInitials);
+          else localStorage.removeItem(INITIALS_KEY);
+        } catch (_) {}
+        setLbStatus("Those initials are taken -- pick another.", true);
+        try { el.lbInitials.focus(); el.lbInitials.select(); } catch (_) {}
+        el.btnLbSubmit.disabled = false;
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data.error || ("HTTP " + res.status));
       lbEntries = Array.isArray(data.entries) ? data.entries : lbEntries;
       show(el.lbEntryForm, false);

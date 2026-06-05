@@ -26,8 +26,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from leaderboard_store import LeaderboardStore  # noqa: E402
+from leaderboard_store import LeaderboardStore, OwnershipError  # noqa: E402
 from rate_limit import RateLimiter  # noqa: E402
+import submission_token  # noqa: E402
 
 # Same-origin leaderboard API: the game and this server share a host, so no CORS.
 API_PATH = "/api/leaderboard"
@@ -41,6 +42,10 @@ _STORE_LOCK = threading.Lock()
 # magnitude above any real player, but it throttles scripted leaderboard spam
 # even if the edge rule is misconfigured or absent.
 _POST_LIMITER = RateLimiter(capacity=10, refill_per_sec=0.1)
+
+# Single-use nonce ledger so a captured submission cannot be replayed within the
+# signing window. Bounded by submission_token.WINDOW_MS eviction.
+_NONCES = submission_token.NonceCache()
 
 
 def _store():
@@ -108,10 +113,28 @@ class RangeHandler(SimpleHTTPRequestHandler):
             return self._send_json(400, {"error": "malformed JSON"})
         if not isinstance(payload, dict):
             return self._send_json(400, {"error": "expected a JSON object"})
+        # Signed-submission gate: a valid HMAC over the run, a fresh timestamp,
+        # and an unused nonce. Turns away unsigned scripted POSTs and replays.
+        initials = payload.get("initials")
+        score = payload.get("score")
+        god = bool(payload.get("god"))
+        nonce = payload.get("nonce")
+        ts = payload.get("ts")
+        owner = payload.get("owner")
+        sig = payload.get("sig")
+        if not isinstance(owner, str) or not owner:
+            return self._send_json(400, {"error": "missing owner token"})
+        if not submission_token.fresh(ts):
+            return self._send_json(400, {"error": "stale submission; refresh and retry"})
+        if not submission_token.verify(initials, score, god, nonce, ts, owner, sig):
+            return self._send_json(403, {"error": "submission signature invalid"})
+        if not _NONCES.check_and_remember(nonce):
+            return self._send_json(409, {"error": "duplicate submission"})
         try:
             entry, rank, board, improved = _store().add(
-                payload.get("initials"), payload.get("score"),
-                bool(payload.get("god")), client_id=payload.get("client_id"))
+                initials, score, god, owner_token=owner)
+        except OwnershipError as e:
+            return self._send_json(403, {"error": str(e)})
         except ValueError as e:
             return self._send_json(400, {"error": str(e)})
         except Exception:
