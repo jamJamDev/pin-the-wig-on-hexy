@@ -153,6 +153,7 @@
     btnFeedStart: document.getElementById("btn-feed-start"),
     // Blackjack finale
     screenBlackjack: document.getElementById("screen-blackjack"),
+    bjWig: document.getElementById("bj-wig"),
     bjPipsWin: document.getElementById("bj-pips-win"),
     bjPipsLoss: document.getElementById("bj-pips-loss"),
     bjDealerCards: document.getElementById("bj-dealer-cards"),
@@ -165,12 +166,12 @@
     btnBjNext: document.getElementById("btn-bj-next"),
     // Slot-machine finale
     screenSlots: document.getElementById("screen-slots"),
+    slotsWig: document.getElementById("slots-wig"),
     slotsGrid: document.getElementById("slots-grid"),
     slotsCredits: document.getElementById("slots-credits"),
     slotsLines: document.getElementById("slots-lines"),
     slotsBet: document.getElementById("slots-bet"),
     slotsCost: document.getElementById("slots-cost"),
-    slotsProgressFill: document.getElementById("slots-progress-fill"),
     slotsResult: document.getElementById("slots-result"),
     slotsOverlay: document.getElementById("slots-overlay"),
     slotsWarn: document.getElementById("slots-warn"),
@@ -1762,11 +1763,41 @@
     return "Next hand";
   }
 
+  // Drive a wig meter (the slots / blackjack progress gauge). seat in [0,1]
+  // rides in on the --seat custom property; at a full seat the CSS flips from
+  // the in-flight animation (dangle / spin) to the settle. Decorative, so a
+  // missing node is a no-op rather than a throw.
+  function setWigSeat(meter, seat) {
+    if (!meter) return;
+    var s = seat < 0 ? 0 : seat > 1 ? 1 : seat;
+    meter.style.setProperty("--seat", s);
+    meter.classList.toggle("is-seated", s >= 0.999);
+  }
+
+  // How far the wig has settled onto Hexy in the blackjack final boss: each hand
+  // banked off the True God Gamer drops it a notch, a loss hauls it back up, and
+  // clinching the match (ROUNDS_TO_WIN wins) seats it fully -- the crown moment.
+  // A revealed-but-unapplied result counts immediately so the wig reacts the
+  // instant a hand is won or lost (and so the clinching win seats it fully
+  // before the screen hands off to the slot machine).
+  function bjWigProgress(g) {
+    if (!g) return 0;
+    var won = g.roundsWon, lost = g.roundsLost;
+    if (g.phase === "result") {
+      if (g.result === "win") won += 1;
+      else if (g.result === "lose") lost += 1;
+    }
+    if (won >= BLACKJACK.ROUNDS_TO_WIN) return 1;
+    var net = won - lost;
+    return (net < 0 ? 0 : net) / BLACKJACK.ROUNDS_TO_WIN;
+  }
+
   function bjRender() {
     var g = game.bj;
     if (!g) return;
     el.bjPipsWin.textContent = bjPips(g.roundsWon, BLACKJACK.ROUNDS_TO_WIN);
     el.bjPipsLoss.textContent = bjPips(g.roundsLost, BLACKJACK.LOSSES_ALLOWED + 1);
+    setWigSeat(el.bjWig, bjWigProgress(g));
 
     renderBjHand(el.bjDealerCards, g.dealer, g.dealerHole);
     el.bjDealerTotal.textContent = bjTotalText(g.dealer, g.dealerHole);
@@ -1957,7 +1988,7 @@
     el.slotsCost.textContent = cost;
     var pct = Math.max(0, Math.min(1, (g.credits - SLOT.START_CREDITS) /
       (SLOT.TARGET_CREDITS - SLOT.START_CREDITS)));
-    el.slotsProgressFill.style.transform = "scaleX(" + pct + ")";
+    setWigSeat(el.slotsWig, pct);
 
     // Result banner: a win is green, a losing spin red, the pre-spin state neutral.
     if (lr) {

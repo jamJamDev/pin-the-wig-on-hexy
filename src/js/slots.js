@@ -46,7 +46,7 @@
   var TARGET_CREDITS = 2000;     // reach this to COMPLETE the stage
   var MAX_LINES = 30;            // size of the payline catalog ("a TON")
   var MIN_LINES = 2;   // floor is 2: one active line forces every win to the >=2x payout floor, overshooting the EV target into a ~+19%/spin grind
-  var BET_TIERS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];   // discrete bet-per-line values (min cost = 1 line x 10)
+  var BET_TIERS = [1, 2, 3, 4, 5];   // discrete bet-per-line values (min cost = MIN_LINES x 1)
 
   // Playing on credit: a spin may be staked even when the bankroll can't cover
   // it, going as far as DEBT_LIMIT into the red. But debt is never carried -- if

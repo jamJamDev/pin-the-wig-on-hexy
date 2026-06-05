@@ -654,7 +654,7 @@ html, body {
   display: flex;
   justify-content: center;
   gap: clamp(10px, 4vw, 26px);
-  margin: 12px 0 14px;
+  margin: 8px 0 10px;
 }
 .slots-meter { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .slots-meter-cap {
@@ -748,38 +748,9 @@ html, body {
 .slots-meter-num.is-debt { color: var(--accent); }
 .slots-meter-num.is-pop { animation: count-pop 0.4s cubic-bezier(0.18, 1.2, 0.4, 1); }
 
-.slots-progress {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 14px auto 4px;
-  max-width: 420px;
-}
-.slots-progress-track {
-  flex: 1;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.10);
-  overflow: hidden;
-}
-.slots-progress-fill {
-  height: 100%;
-  width: 100%;
-  transform: scaleX(0);
-  transform-origin: left center;
-  background: linear-gradient(90deg, var(--good), var(--warn));
-  transition: transform 0.35s cubic-bezier(0.18, 1, 0.4, 1);
-}
-.slots-progress-cap {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  opacity: 0.65;
-  white-space: nowrap;
-}
-
 .slots-result {
   min-height: 24px;
-  margin: 12px 0 10px;
+  margin: 8px 0 8px;
   font-size: clamp(15px, 4.2vw, 20px);
   font-weight: 900;
   letter-spacing: 0.02em;
@@ -813,7 +784,7 @@ html, body {
   display: flex;
   justify-content: center;
   gap: clamp(14px, 6vw, 36px);
-  margin-bottom: 14px;
+  margin-bottom: 8px;
   flex-wrap: wrap;
 }
 .slots-adjust { display: flex; align-items: center; gap: 8px; }
@@ -842,8 +813,122 @@ html, body {
   .slots-result.is-rolling, .slots-warn,
   .slots-reel.just-stopped, .slots-meter-num.is-pop,
   .slots-grid.is-spinning, .slots-overlay.is-spinning { animation: none; }
-  .slots-progress-fill { transition: none; }
   .slots-overlay polyline { transition: none; }
+}
+
+/* ---------- Wig meter (the "pin the wig on Hexy" progress gauge) ----------
+   A tiny Hexy head that the wig settles onto as you near winning a finale and
+   retreats from on a setback -- it IS the progress bar, made of the real game
+   art. Two screens, two comedies: slots drops the wig straight down like a
+   guillotine; blackjack swoops it in from the side spinning like a frisbee.
+   Seat fraction (0 = off, 1 = fully on the scalp) rides in on the inline
+   --seat custom property, set per render by slotsRender()/bjRender().
+
+   Geometry mirrors the canvas pin game (game.js HEAD_ANCHOR/WIG_ANCHOR): the
+   stage box is Hexy's head (448x544), the lift sits at the head's seat point
+   (52%/21%) and is 95% of the head's width, and translate(-48%,-46%) lands the
+   wig's parting line on that seat. The meter offset (--drop / --swoop) is added
+   on top of that seated translate so seat=1 always reads as a clean fit. */
+.wig-meter {
+  --drop: 40%;          /* slots: how far above the scalp the wig hovers at seat 0 */
+  --swoop: 172%;        /* blackjack: how far to the side the wig parks at seat 0 */
+  --swoop-rise: 26%;    /* blackjack: extra lift while parked, so it arcs in */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 2px auto 0;
+  pointer-events: none;
+}
+/* The stage box IS Hexy's head; it sits in flow (so the meter's footprint stays
+   compact) while the wig is free to fly outside it without consuming layout. */
+.wig-meter-stage {
+  position: relative;
+  height: clamp(56px, 11vw, 74px);
+  aspect-ratio: 448 / 544;
+}
+.wig-meter-cap {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+.wig-meter-head,
+.wig-meter-wig { user-select: none; -webkit-user-drag: none; }
+.wig-meter-head {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+}
+.wig-lift {
+  position: absolute;
+  left: 52%;
+  top: 21%;
+  width: 95%;
+  transform: translate(-48%, -46%);
+  transition: transform 0.55s cubic-bezier(0.34, 1.4, 0.5, 1);
+  will-change: transform;
+}
+.wig-meter-wig {
+  display: block;
+  width: 100%;
+  filter: drop-shadow(0 5px 7px rgba(0, 0, 0, 0.45));
+}
+
+/* Slots -- the guillotine. The wig hangs straight above the scalp and drops
+   onto it as credits climb; a losing spin hauls it back up. While it hangs it
+   sways on its "string"; once seated it does a single squashy settle. */
+.wig-meter--slots .wig-lift {
+  transform: translate(-48%, calc(-46% - (1 - var(--seat)) * var(--drop)));
+}
+.wig-meter--slots .wig-meter-wig {
+  transform-origin: 50% -60%;
+  animation: wig-dangle 2.1s ease-in-out infinite;
+}
+.wig-meter--slots.is-seated .wig-meter-wig {
+  animation: wig-settle 0.42s cubic-bezier(0.18, 1.5, 0.4, 1);
+}
+@keyframes wig-dangle {
+  0%, 100% { transform: rotate(-5deg); }
+  50%      { transform: rotate(5deg); }
+}
+@keyframes wig-settle {
+  0%   { transform: translateY(-7%) scale(1.04, 0.9); }
+  55%  { transform: translateY(0) scale(0.95, 1.07); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+
+/* Blackjack -- the frisbee. The wig parks off to the side, spinning, and arcs
+   over onto Hexy as you bank hand-wins; a loss flings it back out, still
+   spinning. It only stops spinning once it sticks the landing on his scalp. */
+.wig-meter--blackjack .wig-lift {
+  transform: translate(
+    calc(-48% + (1 - var(--seat)) * var(--swoop)),
+    calc(-46% - (1 - var(--seat)) * var(--swoop-rise)));
+  transition: transform 0.6s cubic-bezier(0.3, 1.25, 0.5, 1);
+}
+.wig-meter--blackjack .wig-meter-wig {
+  animation: wig-frisbee 0.7s linear infinite;
+}
+.wig-meter--blackjack.is-seated .wig-meter-wig {
+  animation: wig-stick 0.4s cubic-bezier(0.18, 1.5, 0.4, 1);
+}
+@keyframes wig-frisbee {
+  to { transform: rotate(360deg); }
+}
+@keyframes wig-stick {
+  0%   { transform: rotate(-22deg) scale(1.05); }
+  60%  { transform: rotate(6deg) scale(0.97); }
+  100% { transform: rotate(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wig-lift,
+  .wig-meter-wig { transition: none; animation: none; }
+  .wig-meter--slots.is-seated .wig-meter-wig,
+  .wig-meter--blackjack.is-seated .wig-meter-wig { animation: none; }
 }
 
 /* ---------- Round-start countdown ---------- */

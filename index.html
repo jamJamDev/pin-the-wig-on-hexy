@@ -124,6 +124,14 @@
       <p class="pin-eyebrow">Final Boss &middot; Beat The True God Gamer at Blackjack</p>
       <h2 class="round-headline">God Gamer Showdown</h2>
       <p class="bj-sub">Win <b>4 of 5</b> hands to be crowned. You can afford one loss &mdash; a <b>second loss ends your run</b>. Dealer stands on 17; pushes re-deal.</p>
+
+      <div id="bj-wig" class="wig-meter wig-meter--blackjack" style="--seat:0" aria-hidden="true">
+        <div class="wig-meter-stage">
+          <img class="wig-meter-head" src="assets/bald_no_bg.png" alt="" draggable="false" />
+          <div class="wig-lift"><img class="wig-meter-wig" src="assets/wig.png" alt="" draggable="false" /></div>
+        </div>
+      </div>
+
       <div class="bj-score" aria-hidden="true">
         <span class="bj-tally bj-tally-win">Wins <span id="bj-pips-win" class="bj-pips"></span></span>
         <span class="bj-tally bj-tally-loss">Losses <span id="bj-pips-loss" class="bj-pips"></span></span>
@@ -160,8 +168,8 @@
       <div class="slots-meters" aria-hidden="true">
         <span class="slots-meter"><span class="slots-meter-cap">Credits</span><span id="slots-credits" class="slots-meter-num">1000</span></span>
         <span class="slots-meter"><span class="slots-meter-cap">Lines</span><span id="slots-lines" class="slots-meter-num">30</span></span>
-        <span class="slots-meter"><span class="slots-meter-cap">Bet/Line</span><span id="slots-bet" class="slots-meter-num">10</span></span>
-        <span class="slots-meter"><span class="slots-meter-cap">Spin Cost</span><span id="slots-cost" class="slots-meter-num">300</span></span>
+        <span class="slots-meter"><span class="slots-meter-cap">Bet/Line</span><span id="slots-bet" class="slots-meter-num">1</span></span>
+        <span class="slots-meter"><span class="slots-meter-cap">Spin Cost</span><span id="slots-cost" class="slots-meter-num">30</span></span>
       </div>
 
       <div class="slots-stage" aria-hidden="true">
@@ -169,9 +177,12 @@
         <svg id="slots-overlay" class="slots-overlay" preserveAspectRatio="none" aria-hidden="true"></svg>
       </div>
 
-      <div class="slots-progress" aria-hidden="true">
-        <div class="slots-progress-track"><div id="slots-progress-fill" class="slots-progress-fill"></div></div>
-        <span class="slots-progress-cap">1000 &rarr; 2000</span>
+      <div id="slots-wig" class="wig-meter wig-meter--slots" style="--seat:0" aria-hidden="true">
+        <div class="wig-meter-stage">
+          <img class="wig-meter-head" src="assets/bald_no_bg.png" alt="" draggable="false" />
+          <div class="wig-lift"><img class="wig-meter-wig" src="assets/wig.png" alt="" draggable="false" /></div>
+        </div>
+        <span class="wig-meter-cap">1000 &rarr; 2000</span>
       </div>
 
       <p id="slots-result" class="slots-result">Turn 1000 into 2000. Or go home broke.</p>

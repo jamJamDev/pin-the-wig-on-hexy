@@ -153,7 +153,7 @@ test("the bet/spin state machine guards every edge", () => {
   // A stake that would push the bankroll past the debt limit no-ops.
   const broke = S.createGame(7);
   broke.credits = 3;
-  S.setLines(broke, S.MAX_LINES); S.setBet(broke, S.BET_TIERS.length - 1);  // cost 3000 >> 3+50
+  S.setLines(broke, S.MAX_LINES); S.setBet(broke, S.BET_TIERS.length - 1);  // cost 150 >> 3+50
   assert.equal(S.canSpin(broke), false, "stake far beyond the debt limit is refused");
   const c = broke.credits, n = broke.spinNum;
   S.spin(broke);
@@ -190,13 +190,13 @@ test("debt: stake to -DEBT_LIMIT is allowed, beyond it is refused", () => {
   // canSpin lets the bankroll dip exactly to -DEBT_LIMIT, never past it.
   const g = S.createGame(7);
   g.credits = 0;
-  S.setLines(g, 5); S.setBet(g, 0);                  // cost = 5 * 10 = 50 == DEBT_LIMIT
+  S.setLines(g, 10); S.setBet(g, S.BET_TIERS.length - 1);   // cost = 10 * 5 = 50 == DEBT_LIMIT
   assert.equal(S.spinCost(g), S.DEBT_LIMIT);
   assert.equal(S.canSpin(g), true, "staking exactly to -DEBT_LIMIT is allowed");
 
   const over = S.createGame(7);
   over.credits = 0;
-  S.setLines(over, 6); S.setBet(over, 0);            // cost = 6 * 10 = 60 > 50
+  S.setLines(over, 11); S.setBet(over, S.BET_TIERS.length - 1);   // cost = 11 * 5 = 55 > 50
   assert.equal(S.canSpin(over), false, "staking past -DEBT_LIMIT is refused");
 
   // The smallest spin is affordable even from a zero bankroll (dips the minimum stake into debt).
