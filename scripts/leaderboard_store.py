@@ -30,10 +30,6 @@ INITIALS_LEN = 3
 # (Feed Molly, pinball, blackjack, slots), each capped at 10000 -> 50000. No
 # legitimate run exceeds this, so it rejects inflated/forged submissions.
 SCORE_MAX = 50_000
-# A GOD GAMER must clear the slot finale, which alone banks exactly 10000, so
-# every crowned run scores at least this. A claimed god flag below the floor is
-# not a real victory and is dropped (the score itself is still recorded).
-GOD_MIN = 10_000
 
 
 class OwnershipError(Exception):
@@ -167,9 +163,9 @@ class LeaderboardStore:
         different owner raises ``OwnershipError`` (-> 403). A pre-ownership legacy
         row (no ``owner_hash``) is claimable and binds to the first valid owner.
 
-        ``god`` is honoured only when the score clears ``GOD_MIN`` -- a claimed
-        crown below a real victory's floor is dropped while the score still
-        counts. ``rank`` is the resulting 1-based position; it can exceed the cap
+        ``god`` is honoured as sent -- the client raises it only for a completed
+        run (the full gauntlet), so the crown marks finishing the game, not a
+        score. ``rank`` is the resulting 1-based position; it can exceed the cap
         when a full board edged the run out. Raises ValueError on invalid
         initials, score, or a missing owner token so the caller answers 400.
         """
@@ -182,7 +178,7 @@ class LeaderboardStore:
         owner = hash_owner(owner_token)
         if owner is None:
             raise ValueError("a submission must carry an owner token")
-        accept_god = bool(god) and clean_score >= GOD_MIN
+        accept_god = bool(god)
         with self._lock:
             entries = self._load_locked()
             # Collapse any rows sharing these initials (legacy/edited data may hold
@@ -201,7 +197,7 @@ class LeaderboardStore:
                 entry = dict(best)
                 entry["owner_hash"] = owner
                 entry.pop("client_id", None)
-                entry["god"] = bool(entry.get("god")) and entry.get("score", 0) >= GOD_MIN
+                entry["god"] = bool(entry.get("god"))
                 improved = False
             else:
                 # New initials, or the owner raising their own score.

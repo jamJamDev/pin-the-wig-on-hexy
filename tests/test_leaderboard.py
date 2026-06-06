@@ -68,7 +68,7 @@ class StoreAddPersist(unittest.TestCase):
         self.assertTrue(improved)
         self.assertEqual(rank, 1)
         self.assertEqual(entry["initials"], "XYZ")
-        self.assertTrue(entry["god"])                    # 30000 clears the god floor
+        self.assertTrue(entry["god"])                    # the crown is honored as sent
         self.assertNotIn("owner_hash", entry)            # secret never leaves the server
         # persisted to disk (with the owner binding kept on disk)
         with open(self.path, encoding="utf-8") as f:
@@ -158,25 +158,28 @@ class InitialsOwnership(unittest.TestCase):
         self.assertIn("owner_hash", on_disk[0])
         self.assertNotEqual(on_disk[0]["owner_hash"], "super-secret")  # hashed, not raw
 
-    def test_god_flag_requires_the_god_floor(self):
-        low, _, _, _ = self.store.add("LOW", LB.GOD_MIN - 1, god=True, ts=1, owner_token="oL")
-        self.assertFalse(low["god"])          # a claimed crown below a real victory is dropped
-        self.assertEqual(low["score"], LB.GOD_MIN - 1)  # the score itself still counts
-        high, _, _, _ = self.store.add("HII", LB.GOD_MIN, god=True, ts=2, owner_token="oH")
-        self.assertTrue(high["god"])          # a god-range score keeps the crown
+    def test_god_flag_is_honored_regardless_of_score(self):
+        # The crown marks beating the whole game (the client sets the flag only
+        # for a completed run); the store honors it as sent and never gates it on
+        # the score -- in either direction.
+        low, _, _, _ = self.store.add("LOW", 5, god=True, ts=1, owner_token="oL")
+        self.assertTrue(low["god"])           # a completed run keeps its crown at any score
+        self.assertEqual(low["score"], 5)
+        plain, _, _, _ = self.store.add("PLN", 40000, god=False, ts=2, owner_token="oP")
+        self.assertFalse(plain["god"])        # a high score without the flag stays uncrowned
 
-    def test_claiming_a_legacy_subfloor_god_row_drops_the_crown(self):
-        # A pre-floor row may carry god=True below GOD_MIN. Claiming it on the
-        # non-improving path must apply the same floor as a fresh write, so a
-        # crown that no longer qualifies cannot survive by being inherited.
+    def test_claiming_a_legacy_low_score_god_row_keeps_the_crown(self):
+        # A legacy row may carry god=True at any score. Claiming it on the
+        # non-improving path preserves the crown -- the tag tracks completion,
+        # not the score, so an inherited crown is never stripped.
         with open(self.path, "w", encoding="utf-8") as f:
-            json.dump([{"initials": "AAA", "score": LB.GOD_MIN - 1,
+            json.dump([{"initials": "AAA", "score": 50,
                         "god": True, "ts": 1}], f)
         entry, _, board, improved = self.store.add("AAA", 10, ts=2, owner_token="o1")
         self.assertFalse(improved)                 # 10 < standing best
-        self.assertEqual(entry["score"], LB.GOD_MIN - 1)
-        self.assertFalse(entry["god"])             # sub-floor crown dropped on claim
-        self.assertFalse(board[0]["god"])
+        self.assertEqual(entry["score"], 50)
+        self.assertTrue(entry["god"])              # crown preserved on claim
+        self.assertTrue(board[0]["god"])
 
     def test_personal_best_keeps_its_god_flag(self):
         self.store.add("AAA", 30000, god=True, ts=1, owner_token="o1")
