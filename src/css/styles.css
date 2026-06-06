@@ -120,6 +120,16 @@ html, body {
   transform-origin: left center;
   transition: transform 0.12s linear, background 0.3s;
 }
+/* The "she hit you" pulse on the time bar. Only box-shadow/filter animate so the
+   per-frame inline transform (patience width) and background are left untouched. */
+.hud-timer-fill--hit {
+  animation: hud-hit 0.45s ease-out;
+}
+@keyframes hud-hit {
+  0%   { box-shadow: 0 0 0 0 rgba(254, 0, 0, 0); filter: brightness(2.6); }
+  18%  { box-shadow: 0 0 14px 4px rgba(254, 0, 0, 0.95); filter: brightness(2.6); }
+  100% { box-shadow: 0 0 0 0 rgba(254, 0, 0, 0); filter: brightness(1); }
+}
 .icon-btn {
   pointer-events: auto;
   border: 0;
@@ -1271,6 +1281,16 @@ html, body {
   opacity: 0.6;
   font-variant-numeric: tabular-nums;
 }
+/* Collapsed radio: a slim strip of just the transport controls + volume, so the
+   player stops swallowing the play area (esp. on mobile). The expand toggle in
+   the controls row restores the full panel. Width is unchanged. */
+.music.collapsed { gap: 6px; padding: 8px 12px; }
+.music.collapsed .music-head,
+.music.collapsed .music-seek,
+.music.collapsed .music-times,
+.music.collapsed .music-download,
+.music.collapsed .music-status { display: none; }
+.music-toggle { margin-left: 6px; }
 .music-controls { display: flex; align-items: center; gap: 6px; }
 .music-controls .icon-btn {
   width: 34px;

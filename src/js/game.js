@@ -24,6 +24,7 @@
   const HEARD_KEY = "ptwoh.voice.heardFiles";
   const ACH_KEY = "ptwoh.achievements";
   const MUSIC_VOL_KEY = "ptwoh.music.vol";
+  const MUSIC_COLLAPSED_KEY = "ptwoh.music.collapsed";   // "1" small strip, "0" full panel
   const INITIALS_KEY = "ptwoh.initials";   // remembered 3-letter tag
   const OWNER_KEY = "ptwoh.ownerToken";    // secret -> proves ownership of this browser's initials
   const LB_API = "api/leaderboard";        // same-origin; served by scripts/dev_server.py
@@ -198,6 +199,7 @@
     musicMute: document.getElementById("music-mute"),
     musicMuteGlyph: document.getElementById("music-mute-glyph"),
     musicVol: document.getElementById("music-vol"),
+    musicToggle: document.getElementById("music-toggle"),
     musicDownload: document.getElementById("music-download"),
     voiceDownload: document.getElementById("voice-download"),
     musicStatus: document.getElementById("music-status"),
@@ -445,7 +447,7 @@
   const confetti = [];
 
   // Pinball control state, read each frame in update() and reset between balls.
-  // ptr maps an active pointerId to the control it grabbed ("left"/"right"/"plunger").
+  // ptr maps an active pointerId to the control it grabbed ("both"/"plunger").
   const pin = { leftDown: false, rightDown: false, launchHeld: false, launchReleased: false, ptr: {} };
   let pinBannerTimer = 0;
 
@@ -1069,9 +1071,18 @@
       spawnConfettiAt(view.w / 2, view.h * 0.62, 0.35);
     } else if (r.tier === "perfect" || r.tier === "good") {
       beep(r.tier === "perfect" ? 880 : 660, 0.10, "triangle", 0.18);
-    } else {
-      beep(160, 0.18, "sawtooth", 0.14);
+    } else if (r.tier === "kibble") {
+      beep(160, 0.18, "sawtooth", 0.14);       // the cheap-kibble snub
       game.shake = reduceMotion ? 0 : 8;
+    } else {
+      // Whiff: tapped off the tab entirely. Molly swats back -- a HIT, not a quiet
+      // miss. The deep thud, the hard shake, and the red bar flash sell the chunk
+      // of time (patience) her swipe just tore off.
+      beep(90, 0.14, "square", 0.20);          // deep damage thud
+      beep(150, 0.07, "sawtooth", 0.12);       // claw crack on top
+      game.shake = reduceMotion ? 0 : 18;
+      flashFeedHit();
+      showFeedBanner("OUCH! She bit the clock.", run.opened);
     }
 
     if (run.failed) { finishFeedMolly(false); return; }
@@ -1140,6 +1151,17 @@
     el.round.textContent = (run.idx + 1) + " / " + FEED.CANS_GOAL;
     el.score.textContent = game.score;
     el.best.textContent = game.best;
+  }
+
+  // A red flash across the HUD time bar when Molly lands a hit, so the patience a
+  // whiff just tore off reads as damage taken rather than a quiet drain. Re-armed
+  // each call (reflow) so back-to-back hits always flash.
+  function flashFeedHit() {
+    const fill = el.timerFill;
+    if (!fill) return;
+    fill.classList.remove("hud-timer-fill--hit");
+    void fill.offsetWidth;
+    fill.classList.add("hud-timer-fill--hit");
   }
 
   // Reuses the pinball banner element; pip count tracks cans opened.
@@ -2757,15 +2779,16 @@
     if (game.state === "pinPlaying") {
       e.preventDefault();
       localPoint(e);
-      // Ball parked -> any press charges the plunger; ball live -> left/right
-      // screen-half works that flipper. Keyed by pointerId for multitouch.
+      // Ball parked -> any press charges the plunger; ball live -> a tap/click
+      // anywhere works BOTH flippers at once (easier on mobile and with a mouse).
+      // Keyed by pointerId for multitouch.
       if (!game.pin.ball.live) {
         pin.launchHeld = true;
         pin.ptr[e.pointerId] = "plunger";
       } else {
-        const side = pointer.x < view.w / 2 ? "left" : "right";
-        if (side === "left") pin.leftDown = true; else pin.rightDown = true;
-        pin.ptr[e.pointerId] = side;
+        pin.leftDown = true;
+        pin.rightDown = true;
+        pin.ptr[e.pointerId] = "both";
       }
       if (canvas.setPointerCapture && e.pointerId != null) {
         try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
@@ -2802,13 +2825,16 @@
   }
 
   // Release whatever control a lifted/cancelled pointer was holding. A plunger
-  // release fires the launch on the next step; flippers just drop.
+  // release fires the launch on the next step; flipper pointers drop BOTH paddles,
+  // but only once no other pointer is still holding them (multitouch).
   function releasePinPointer(pointerId) {
     const role = pointerId != null ? pin.ptr[pointerId] : null;
-    if (role === "plunger") { pin.launchHeld = false; pin.launchReleased = true; }
-    else if (role === "left") pin.leftDown = false;
-    else if (role === "right") pin.rightDown = false;
     if (pointerId != null) delete pin.ptr[pointerId];
+    if (role === "plunger") { pin.launchHeld = false; pin.launchReleased = true; return; }
+    if (role === "both") {
+      const stillHeld = Object.keys(pin.ptr).some((id) => pin.ptr[id] === "both");
+      if (!stillHeld) { pin.leftDown = false; pin.rightDown = false; }
+    }
   }
 
   canvas.addEventListener("pointerdown", onDown);
@@ -2957,6 +2983,7 @@
     lastPct: -1,     // last aria-valuenow we wrote (avoids per-frame churn)
     liveShown: -1,   // last on-air state painted (-1 unset / 0 off / 1 on), avoids per-frame churn
     errStreak: 0,    // consecutive unplayable tracks (auto-skip loop guard)
+    collapsed: true, // start as a slim controls+volume strip; user can expand
   };
 
   function trackUrl(file) { return "assets/music/" + encodeURIComponent(file); }
@@ -3009,7 +3036,11 @@
     el.musicSeek.addEventListener("keydown", onSeekKey);
     el.musicVol.value = String(radio.volume);
     el.musicVol.addEventListener("input", onMusicVolume);
+    el.musicToggle.addEventListener("click", onMusicToggle);
     el.musicDownload.addEventListener("click", downloadAlbum);
+
+    radio.collapsed = loadCollapsed();
+    applyMusicCollapsed();
 
     const live = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
     radio.pos = live.index;
@@ -3068,6 +3099,34 @@
       if (isFinite(v) && v >= 0 && v <= 1) return v;
     } catch (_) {}
     return DEFAULT_MUSIC_VOL;
+  }
+
+  function loadCollapsed() {
+    try {
+      const v = localStorage.getItem(MUSIC_COLLAPSED_KEY);
+      if (v === "0") return false;
+      if (v === "1") return true;
+    } catch (_) {}
+    return true;   // default to the slim strip
+  }
+
+  // Paint the player to match radio.collapsed: collapsed hides everything but the
+  // controls+volume strip and the toggle reads "Expand"; expanded shows the full
+  // panel and the toggle reads "Collapse" (▲ grows the panel upward, ▼ shrinks it).
+  function applyMusicCollapsed() {
+    el.music.classList.toggle("collapsed", radio.collapsed);
+    el.musicToggle.innerHTML = radio.collapsed ? "&#9650;" : "&#9660;";
+    const label = radio.collapsed ? "Expand player" : "Collapse player";
+    el.musicToggle.title = label;
+    el.musicToggle.setAttribute("aria-label", label);
+    el.musicToggle.setAttribute("aria-expanded", radio.collapsed ? "false" : "true");
+  }
+
+  function onMusicToggle() {
+    radio.collapsed = !radio.collapsed;
+    try { localStorage.setItem(MUSIC_COLLAPSED_KEY, radio.collapsed ? "1" : "0"); } catch (_) {}
+    applyMusicCollapsed();
+    sfxClick();
   }
 
   function onMusicVolume() {

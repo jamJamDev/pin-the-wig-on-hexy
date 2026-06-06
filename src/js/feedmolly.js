@@ -61,7 +61,10 @@
   var PAT_PERFECT = 0.05;
   var PAT_GOOD = 0.02;
   var PAT_KIBBLE = -0.04;
-  var PAT_WHIFF = -0.03;
+  // A bare-rim miss -- a tap nowhere near the tab -- is a HIT: she swats back and
+  // a real bite of patience (the run's time bar) is torn off. Tuned to sting hard
+  // enough to feel like damage, but a single can-open (PAT_OPEN) still recovers it.
+  var PAT_WHIFF = -0.12;
   // Opening a can refills patience -- she's briefly pleased to be fed. Without
   // this the single run-long bar can't survive all five cans (drain outpaces
   // per-hit gains), which made the mode near-impossible.
@@ -123,27 +126,27 @@
     {
       key: "crack", name: "Just Crack It",
       hint: "Tap or press Space when the pointer hits the green tab. Bonus for the yellow. That's the whole game, gamer.",
-      rule: { sweep: 3.5, notch: 0.30, drift: 0, hits: 1, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.078 },
+      rule: { sweep: 3.5, notch: 0.20, drift: 0, hits: 1, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.078 },
     },
     {
       key: "flip", name: "Second Thoughts",
       hint: "The opener keeps reversing. Read the flip -- don't just mash a rhythm.",
-      rule: { sweep: 4.0, notch: 0.29, drift: 0, hits: 2, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.082, flip: 1.25 },
+      rule: { sweep: 4.0, notch: 0.19, drift: 0, hits: 2, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.082, flip: 1.25 },
     },
     {
       key: "slip", name: "Moving Target",
       hint: "The tab won't sit still. Neither will she.",
-      rule: { sweep: 4.1, notch: 0.30, drift: 1.1, hits: 1, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.087 },
+      rule: { sweep: 4.1, notch: 0.20, drift: 1.1, hits: 1, hazard: null, every: 0, jolt: 0, kibble: 0, drain: 0.087 },
     },
     {
       key: "swat", name: "Cat Got Your Can",
       hint: "She lunges at the can -- watch the tell, the rim jolts when she connects.",
-      rule: { sweep: 4.5, notch: 0.27, drift: 0.9, hits: 2, hazard: "lunge", every: 1.4, jolt: 0.8, kibble: 0, drain: 0.098 },
+      rule: { sweep: 4.5, notch: 0.17, drift: 0.9, hits: 2, hazard: "lunge", every: 1.4, jolt: 0.8, kibble: 0, drain: 0.098 },
     },
     {
       key: "diva", name: "The Spoiled Diva",
       hint: "Three pops, a reversing wandering tab, a swatting paw, and she snubs cheap kibble. Spoil her.",
-      rule: { sweep: 5.5, notch: 0.24, drift: 1.4, hits: 3, hazard: "both", every: 1.1, jolt: 1.0, kibble: 0.30, drain: 0.108, flip: 1.15 },
+      rule: { sweep: 5.5, notch: 0.15, drift: 1.4, hits: 3, hazard: "both", every: 1.1, jolt: 1.0, kibble: 0.30, drain: 0.108, flip: 1.15 },
     },
   ];
 
