@@ -58,7 +58,7 @@
   // the mouth has entered the chute and is lost -- the left-side twin of the lethal
   // right shooter lane.
   var LCHUTE_X = 0.12;           // inner (playfield-side) wall of the chute -- a narrow kill channel
-  var LCHUTE_TOP = 0.32;         // chute mouth: open above this y
+  var LCHUTE_TOP = 0.22;         // chute mouth: open above this y (higher inner wall -> smaller mouth, harder to fall in)
 
   var BALL_R = 0.030;            // x rect.w
   var BASE_GRAVITY = 1.70;       // x rect.h, px/s^2 (lighter ball / gentler table slant -- easier to loft to the holder)
@@ -96,7 +96,7 @@
   //    under the funnel with no under-flipper wedge. The V funnel ends are derived
   //    from the rest tips (flipperRestTipN) so the funnel always meets the tip.
   var FLIPPERS = [
-    { side: "left",  px: 0.262, py: 0.86, len: 0.200, rest: 0.530, active: -0.95 },
+    { side: "left",  px: 0.252, py: 0.83, len: 0.200, rest: 0.530, active: -0.95 }, // px left of symmetry: raising py lifts the long left tip toward the right tip, so the wider gap keeps a centered ball from cradling on both tips (drain invariant)
     { side: "right", px: 0.678, py: 0.86, len: 0.155, rest: 2.850, active: 3.90 }
   ];
 
@@ -128,7 +128,7 @@
       { x1: LEFT_X,   y1: TOP_Y,      x2: LEFT_X,   y2: BOTTOM_Y, bounce: REST_WALL }, // far-left / chute outer wall (full height)
       { x1: LCHUTE_X, y1: LCHUTE_TOP, x2: LCHUTE_X, y2: BOTTOM_Y, bounce: REST_WALL }, // kill-chute inner wall (mouth open above LCHUTE_TOP)
       { x1: RIGHT_X,  y1: TOP_Y,      x2: RIGHT_X,  y2: BOTTOM_Y, bounce: REST_WALL }, // right outer wall
-      { x1: LANE_X,   y1: 0.34,       x2: LANE_X,   y2: BOTTOM_Y, bounce: REST_WALL }, // lane separator
+      { x1: LANE_X,   y1: 0.28,       x2: LANE_X,   y2: BOTTOM_Y, bounce: REST_WALL }, // lane separator (taller inner wall -> harder to re-enter the shooter lane; top stays above the roof to keep the lane-exit window open)
       { x1: RIGHT_X,  y1: 0.26,       x2: 0.68,     y2: 0.11,     bounce: REST_WALL }, // lane-exit roof: redirects a launched ball left into play
       { x1: 0.68,     y1: 0.11,       x2: 0.68,     y2: TOP_Y,    bounce: REST_WALL }, // roof end-cap: seals the dead pocket above the roof
       { x1: LCHUTE_X, y1: 0.72,       x2: lt.x,     y2: lt.y,     bounce: REST_WALL }, // left V funnel (ends at the left flipper rest tip)
@@ -151,7 +151,7 @@
       name: "Warm-Up Wiggle",
       hint: "Bounce it up the middle. The bumpers are friendly, the slings keep it alive. Don't overthink it, gamer.",
       gravity: 0.9,
-      holder: { x: 0.5, y: 0.17, w: 0.30, h: 0.15, captureSpeed: 0.95 },
+      holder: { x: 0.5, y: 0.115, w: 0.30, h: 0.15, captureSpeed: 0.95 },
       bumpers: [
         { x: 0.38, y: 0.48, r: 0.05, bounce: REST_BUMPER },
         { x: 0.62, y: 0.48, r: 0.05, bounce: REST_BUMPER },
@@ -170,7 +170,7 @@
       name: "The Forbidden Forehead",
       hint: "He's sliding now. Lead the shot, thread the brow posts, or kiss that wig goodbye.",
       gravity: 1.0,
-      holder: { x: 0.5, y: 0.16, w: 0.19, h: 0.14, captureSpeed: 0.85 },
+      holder: { x: 0.5, y: 0.11, w: 0.19, h: 0.14, captureSpeed: 0.85 },
       bumpers: [
         { x: 0.27, y: 0.62, r: 0.055, bounce: 1.3 },    // slingshots: kick upward
         { x: 0.73, y: 0.62, r: 0.055, bounce: 1.3 },
@@ -189,7 +189,7 @@
       name: "Gates of Grease",
       hint: "There's a gate. It opens when it feels like it. Ride the rails and send it through clean.",
       gravity: 1.05,
-      holder: { x: 0.5, y: 0.15, w: 0.20, h: 0.13, captureSpeed: 0.9 },
+      holder: { x: 0.5, y: 0.105, w: 0.20, h: 0.13, captureSpeed: 0.9 },
       bumpers: [
         { x: 0.34, y: 0.58, r: 0.05, bounce: REST_BUMPER },
         { x: 0.66, y: 0.58, r: 0.05, bounce: REST_BUMPER },
@@ -197,10 +197,7 @@
         { x: 0.235, y: 0.44, r: 0.03, bounce: 1.15 },         // outer posts
         { x: 0.765, y: 0.44, r: 0.03, bounce: 1.15 }
       ],
-      walls: [
-        { x1: 0.30, y1: 0.31, x2: 0.40, y2: 0.255, bounce: 0.85 },  // approach rails funnel a rising ball into the mouth
-        { x1: 0.70, y1: 0.31, x2: 0.60, y2: 0.255, bounce: 0.85 }
-      ],
+      walls: [],   // no approach rails by the mouth: that angle kicked launched balls back into the lane
       rule: { type: "shutter", openMs: 1150, closedMs: 1250 }
     },
     {
@@ -209,7 +206,7 @@
       hint: "The gusts are diegetic. The crown floats. Launch WITH the fart, not against it.",
       gravity: 1.1,
       lowGravTop: true,
-      holder: { x: 0.5, y: 0.14, w: 0.21, h: 0.13, captureSpeed: 1.05 },
+      holder: { x: 0.5, y: 0.105, w: 0.21, h: 0.13, captureSpeed: 1.05 },
       bumpers: [
         { x: 0.40, y: 0.54, r: 0.045, bounce: REST_BUMPER },
         { x: 0.60, y: 0.54, r: 0.045, bounce: REST_BUMPER },
@@ -228,7 +225,7 @@
       name: "Rat King's Gauntlet",
       hint: "A shrinking hole. A sliding skull. A greasy gate. A field of posts. Good luck, Rat King.",
       gravity: 1.15,
-      holder: { x: 0.5, y: 0.15, w: 0.22, h: 0.13, captureSpeed: 0.85, minW: 0.13 },
+      holder: { x: 0.5, y: 0.105, w: 0.22, h: 0.13, captureSpeed: 0.85, minW: 0.13 },
       bumpers: [
         { x: 0.30, y: 0.58, r: 0.05, bounce: 1.25 },
         { x: 0.70, y: 0.58, r: 0.05, bounce: 1.25 },

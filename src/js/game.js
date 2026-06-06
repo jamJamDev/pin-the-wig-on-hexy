@@ -3036,7 +3036,10 @@
     el.musicSeek.addEventListener("keydown", onSeekKey);
     el.musicVol.value = String(radio.volume);
     el.musicVol.addEventListener("input", onMusicVolume);
-    el.musicToggle.addEventListener("click", onMusicToggle);
+    // game.js owns the collapse toggle's existence: inject it when a cached/older
+    // index.html lacks the button, so the expand affordance is never missing.
+    ensureMusicToggle();
+    if (el.musicToggle) el.musicToggle.addEventListener("click", onMusicToggle);
     el.musicDownload.addEventListener("click", downloadAlbum);
 
     radio.collapsed = loadCollapsed();
@@ -3110,11 +3113,27 @@
     return true;   // default to the slim strip
   }
 
+  // Create the collapse toggle if the markup lacks it (a stale/older index.html),
+  // appending it to the controls row. applyMusicCollapsed() fills in its glyph and
+  // labels. Idempotent: a no-op when the button is already present.
+  function ensureMusicToggle() {
+    if (el.musicToggle) return;
+    const controls = el.music && el.music.querySelector(".music-controls");
+    if (!controls) return;
+    const btn = document.createElement("button");
+    btn.id = "music-toggle";
+    btn.className = "icon-btn music-toggle";
+    btn.type = "button";
+    controls.appendChild(btn);
+    el.musicToggle = btn;
+  }
+
   // Paint the player to match radio.collapsed: collapsed hides everything but the
   // controls+volume strip and the toggle reads "Expand"; expanded shows the full
   // panel and the toggle reads "Collapse" (▲ grows the panel upward, ▼ shrinks it).
   function applyMusicCollapsed() {
     el.music.classList.toggle("collapsed", radio.collapsed);
+    if (!el.musicToggle) return;   // older markup without the toggle still shows the strip
     el.musicToggle.innerHTML = radio.collapsed ? "&#9650;" : "&#9660;";
     const label = radio.collapsed ? "Expand player" : "Collapse player";
     el.musicToggle.title = label;
