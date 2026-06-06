@@ -2,9 +2,9 @@
  * Pin the Wig on Hexy -- the FINAL leg of the GOD GAMER gauntlet: a 5x5
  * multi-line slot machine. Reaching here means the player beat the True God
  * Gamer at blackjack. Now they must turn 1000 credits into 2000 on a machine
- * rigged so 60% of spins net a win -- frequent, mostly single-line payouts --
- * with the expected value per spin tuned just below zero (a slow drain). Bust to 0 and
- * the run ends in failure; reach 2000 and the gauntlet is cleared.
+ * rigged so 45% of spins net a win -- the player loses outright more often than
+ * they win -- with the expected value per spin tuned just below zero (a slow
+ * drain). Bust to 0 and the run ends in failure; reach 2000 and the gauntlet is cleared.
  *
  * Layered on top is a symmetric SPECIAL pair that surfaces on some non-winning
  * spins: Hexy's BARE HEAD (a full line DEDUCTS credits -- the trap) and the GOLDEN
@@ -25,7 +25,7 @@
  * permutation reels. A loss forms no full line on any active line. The grid is
  * rejection-sampled so EXACTLY those full lines pay and nothing else. The win
  * total is drawn from a two-point mixture over achievable full-line spread sums
- * whose mean is fixed by WIN_RATE and EDGE, so the 60% win-frequency and the
+ * whose mean is fixed by WIN_RATE and EDGE, so the 45% win-frequency and the
  * configured house edge hold provably (see tests/).
  *
  * Pure and DOM-free: the payline catalog, grid synthesis, the line evaluator,
@@ -61,19 +61,19 @@
   var DEBT_LIMIT = 50;
 
   // ---- THE RIG: the two knobs that matter ----
-  // WIN_RATE   fraction of spins that are a net win for the player -- the "fun"
-  //            knob: ~60% of spins pay, so wins feel frequent. At this rate the
-  //            net-win target sits just above the payout floor (a single crown
-  //            line), so most wins are SINGLE-line rather than clumped multi-line
-  //            spreads. (Multi-line wins still occur at smaller bets -- see the
-  //            multi-line test -- but the default 30-line board pays mostly singles.)
+  // WIN_RATE   fraction of spins that are a net win for the player -- the headline
+  //            knob: 45% of spins pay, so the player loses outright MORE often than
+  //            they win and the machine feels stingy. Fewer wins must carry the same
+  //            house edge, so each win pays more: the net-win target sits well above
+  //            the single-line floor, and the default 30-line board lights up 2-3
+  //            line spreads rather than lone lines.
   // EDGE       house edge as EV/cost: 0 = fair (EV~=0), >0 favors the player,
-  //            <0 favors the house. A SMALL edge swings the outcome hard because it
-  //            compounds over the long flat-bet grind from 1000 to 2000: at this
-  //            low-volatility single-line tuning, EDGE=-0.002 (RTP ~99.8%) already
-  //            pulls the player's chance to clear the stage from ~50% (fair) down
-  //            to ~45%. Keep |EDGE| tiny here; even -0.01 would crater it past ~27%.
-  var WIN_RATE = 0.595;
+  //            <0 favors the house. Kept deliberately tiny (-0.002, RTP ~99.8%) so
+  //            the drain is SLOW -- the bankroll bleeds down gradually rather than
+  //            collapsing, and clearing the 1000->2000 stage stays a real (if
+  //            sub-even) chance. The 45% win rate, not the edge, is what makes the
+  //            machine feel stingy; |EDGE| is what sets how fast it ultimately drains.
+  var WIN_RATE = 0.45;
   var EDGE = -0.002;
 
   // ---- THE SPECIALS: a symmetric bonus/penalty pair layered ON TOP of the stake ----
@@ -82,7 +82,7 @@
   // time the GOLDEN WIG (awards BONUS per line bet). BONUS == PENALTY and the two
   // halves are equally likely, so the pair is exactly EV-neutral -- it "evens out"
   // and leaves both rig knobs above byte-identical: the house EDGE is untouched, and
-  // the ~60% net-win frequency (which counts PAYING wins only) is unchanged. The bald
+  // the ~45% net-win frequency (which counts PAYING wins only) is unchanged. The bald
   // deduction is suppressed when a spin already staked into debt, and is capped at
   // PENALTY * max(BET_TIERS) <= DEBT_LIMIT, so a penalty can never breach the debt floor.
   var SPECIAL_LINE_RATE = 0.22;   // share of non-win spins that surface a special line
@@ -309,7 +309,7 @@
   // than `lines` (so the win always NETS positive), drawn from a two-point mixture
   // of the largest qualifying total at or below the EV target (lo) and the smallest
   // at or above it (hi). E[V] = target exactly, independent of the lo/hi swing,
-  // which is what makes the 60% win-frequency and the chosen house edge coexist. The line cap
+  // which is what makes the 45% win-frequency and the chosen house edge coexist. The line cap
   // (MAX_WIN_LINES) bounds how many lines a single payout may spread across.
   function drawWinUnits(rng, lines) {
     var maxParts = Math.min(lines, MAX_WIN_LINES);
@@ -660,7 +660,7 @@
     if (game.credits > game.peakCredits) game.peakCredits = game.credits;  // track the best reached
     game.lastResult = {
       kind: kind,                  // "win" | "loss" | "bonus" | "bald"
-      win: win,                    // a PAYING win (drives the ~60% net-win frequency)
+      win: win,                    // a PAYING win (drives the ~45% net-win frequency)
       payout: res.payout,          // positive paying-line total (0 on loss/special)
       bonus: res.bonus,            // golden-wig award (0 unless a bonus spin)
       penalty: res.penalty,        // bald-head deduction (0 unless a bald spin)

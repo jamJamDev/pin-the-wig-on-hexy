@@ -212,15 +212,29 @@ html, body {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
+  /* flex-start + panel margin:auto centers the panel when it fits AND lets it
+     scroll (never clip top/bottom) when it is taller than the viewport -- the
+     align-items:center + overflow-auto combo would pin the top off-screen. */
+  align-items: flex-start;
   justify-content: center;
-  padding: 24px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  /* Honour notches/home indicators (viewport-fit=cover); the bottom keeps clear
+     of the fixed music dock + achievements button so panel controls never hide
+     behind them on short screens. */
+  padding:
+    max(24px, env(safe-area-inset-top))
+    max(24px, env(safe-area-inset-right))
+    max(24px, calc(env(safe-area-inset-bottom) + 12px))
+    max(24px, env(safe-area-inset-left));
   z-index: 10;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(3px);
 }
 
 .panel {
+  margin: auto;
   width: min(520px, 92vw);
   background: var(--panel);
   border: 6px solid var(--panel-edge);
@@ -1206,8 +1220,8 @@ html, body {
 /* Always-visible achievements button (bottom-right, mirrors the music widget). */
 .corner-btn {
   position: fixed;
-  right: clamp(10px, 2.5vw, 22px);
-  bottom: clamp(10px, 2.5vw, 22px);
+  right: max(clamp(10px, 2.5vw, 22px), env(safe-area-inset-right));
+  bottom: max(clamp(10px, 2.5vw, 22px), env(safe-area-inset-bottom));
   z-index: 11;
   width: 44px;
   height: 44px;
@@ -1220,10 +1234,11 @@ html, body {
 /* ---------- Music player ---------- */
 .music {
   position: fixed;
-  left: clamp(10px, 2.5vw, 22px);
-  bottom: clamp(10px, 2.5vw, 22px);
+  left: max(clamp(10px, 2.5vw, 22px), env(safe-area-inset-left));
+  bottom: max(clamp(10px, 2.5vw, 22px), env(safe-area-inset-bottom));
   z-index: 11;
   width: min(260px, 78vw);
+  max-width: calc(100vw - 72px);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1573,4 +1588,52 @@ html, body {
   /* Drop the bob but keep the playful tilt (it otherwise lives in the keyframes). */
   .gt-letter { animation: none; transform: rotate(-6deg); }
   .gt-letter:nth-child(even) { transform: rotate(6deg); }
+}
+
+/* ============================================================================
+   Responsive layer -- phones & narrow viewports. The overlays already scroll
+   and centre (see .overlay/.panel); this tier packs the finale panels so most
+   of each leg fits a phone without scrolling and keeps bottom controls clear of
+   the fixed music dock + achievements button.
+   ============================================================================ */
+@media (max-width: 600px) {
+  /* Reserve space at the bottom of every scrollable overlay so its last control
+     (SPIN, Play Again, Stand...) scrolls clear of the bottom-left music dock and
+     bottom-right achievements button instead of hiding behind them. */
+  .overlay {
+    padding-bottom: max(calc(env(safe-area-inset-bottom) + 100px), 100px);
+  }
+
+  .panel { padding: clamp(18px, 5vw, 28px); border-width: 4px; }
+  .round-headline { font-size: clamp(23px, 7vw, 32px); }
+  .pin-eyebrow { margin-bottom: 4px; }
+
+  /* Shared finale description: shorter + tighter so the grid/felt sit higher. */
+  .bj-sub { font-size: 13px; line-height: 1.45; margin: 8px auto 10px; }
+
+  /* Slots: pack meters/grid/legend/controls so the whole leg fits a phone. */
+  .slots-meters { gap: clamp(8px, 3.5vw, 18px); margin: 6px 0 8px; }
+  .slots-grid { padding: 10px; gap: clamp(4px, 1.4vw, 8px); }
+  .slots-reel { gap: clamp(4px, 1.4vw, 8px); }
+  .slots-legend { gap: 6px; margin: 8px auto; }
+  .slots-legend-item { font-size: 11px; }
+  .slots-result { margin: 8px 0 4px; }
+  .slots-controls { gap: clamp(12px, 5vw, 24px); margin-bottom: 6px; }
+  .slots-spin { padding: 13px 44px; }
+
+  /* Blackjack: a touch smaller so a full hand + the dealer fit without overflow. */
+  .bj-felt { padding: 12px 10px; gap: 10px; }
+  .bj-score { margin-bottom: 10px; }
+  .bj-btn { padding: 12px 24px; }
+
+  /* Start screen: calmer, less cramped wall of text. */
+  .tagline { margin: 10px 0 16px; }
+  .how { font-size: 13.5px; gap: 7px; margin-bottom: 18px; }
+  .contract { font-size: 10px; line-height: 1.5; margin-top: 14px; }
+}
+
+/* Very small phones: shrink the 5x5 reels so they never overflow the panel. */
+@media (max-width: 380px) {
+  .slots-cell { width: clamp(36px, 10.8vw, 46px); font-size: clamp(19px, 5.4vw, 27px); }
+  .slots-grid { padding: 8px; }
 }

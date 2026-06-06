@@ -2,11 +2,11 @@
  * Pin the Wig on Hexy -- the God Gamer final boss: blackjack against the True God Gamer.
  *
  * Reaching here means the player qualified on base score (>75%) AND cleared all
- * five pinball tables. This is the last gate: blackjack against the True God Gamer (the dealer),
- * best of five. You must WIN FOUR of five hands to be crowned GOD GAMER, which
- * means you can afford at most ONE loss -- a second loss ends the run on the spot
- * (you can no longer reach four). A push doesn't count -- that hand re-deals, so
- * ties never cost you the title and never advance you either.
+ * five pinball tables. This is the last gate: blackjack against the True God Gamer (the dealer).
+ * You must WIN FOUR hands to be crowned GOD GAMER, which means you can afford at
+ * most TWO losses -- a third loss ends the run on the spot (you can no longer
+ * reach four within the six-round match). A push doesn't count -- that hand
+ * re-deals, so ties never cost you the title and never advance you either.
  *
  * Standard single-hand rules: dealer stands on 17 (including soft 17), a natural
  * two-card 21 beats a drawn 21 and pushes another natural. Each hand is dealt
@@ -30,9 +30,9 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  var ROUNDS_TOTAL = 5;     // best-of-five match
+  var ROUNDS_TOTAL = 6;     // win four before a third loss (up to six rounds)
   var ROUNDS_TO_WIN = 4;    // hands you must win to be crowned GOD GAMER
-  var LOSSES_ALLOWED = ROUNDS_TOTAL - ROUNDS_TO_WIN; // 1 -- a second loss is elimination
+  var LOSSES_ALLOWED = ROUNDS_TOTAL - ROUNDS_TO_WIN; // 2 -- a third loss is elimination
   var DEALER_STANDS_ON = 17; // dealer draws while its total is below this
   var WIN_POINTS = 2000;    // score banked per hand won off the True God Gamer
   var SWEEP_BONUS = 2000;   // extra banked for a flawless 4-0 match (zero losses) -- the
@@ -184,7 +184,7 @@
   }
 
   // Fold the settled hand into the match: a win advances (and a fourth completes
-  // the four needed), a loss spends the one allowed -- a second loss fails the
+  // the four needed), a loss spends one of the allowed -- a third loss fails the
   // whole challenge -- and a push leaves the tally untouched (the caller
   // re-deals). Returns the result string.
   function applyResult(game) {

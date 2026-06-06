@@ -2,9 +2,9 @@
 
 // The God Gamer blackjack finale in isolation: the deck is well-formed, hand
 // valuation handles aces both ways, the dealer policy stands on (soft) 17,
-// settle ranks every outcome including naturals, the win-four-of-five
-// progression spends exactly one allowed loss before failing, and a fixed seed
-// reproduces an identical deal and play-out.
+// settle ranks every outcome including naturals, the win-four progression
+// spends two allowed losses before failing, and a fixed seed reproduces an
+// identical deal and play-out.
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -15,10 +15,10 @@ const hand = (...ranks) => ranks.map((r) => card(r));
 // settle() reads only .player and .dealer, so a bare pair drives it directly.
 const settleHands = (p, d) => BJ.settle({ player: p, dealer: d });
 
-test("the match constants are best-of-five, win four, one loss allowed", () => {
-  assert.equal(BJ.ROUNDS_TOTAL, 5);
+test("the match constants are win four, two losses allowed", () => {
+  assert.equal(BJ.ROUNDS_TOTAL, 6);
   assert.equal(BJ.ROUNDS_TO_WIN, 4);
-  assert.equal(BJ.LOSSES_ALLOWED, 1);
+  assert.equal(BJ.LOSSES_ALLOWED, 2);
   assert.equal(BJ.DEALER_STANDS_ON, 17);
 });
 
@@ -148,7 +148,7 @@ test("applyResult: four wins crowns the player, one loss is survivable", () => {
   play("push");                       // pushes never move the tally
   assert.equal(g.roundsWon, 1);
   assert.equal(g.roundsLost, 0);
-  play("lose");                       // the one allowed loss
+  play("lose");                       // one of the allowed losses
   assert.equal(g.roundsLost, 1);
   assert.equal(g.failed, false);
   play("win"); play("win");
@@ -197,7 +197,7 @@ test("the sweep bonus rewards a flawless match: 4-0 banks more than 4-1", () => 
   assert.ok(cleanTotal > lossyTotal, "a sweep must beat a lossy win");
 });
 
-test("applyResult: a second loss fails the whole challenge", () => {
+test("applyResult: a third loss fails the whole challenge", () => {
   const g = BJ.createGame(7);
   function play(result) { g.phase = "result"; g.result = result; return BJ.applyResult(g); }
   play("win");
@@ -205,7 +205,10 @@ test("applyResult: a second loss fails the whole challenge", () => {
   assert.equal(g.failed, false);      // first loss survivable
   play("lose");
   assert.equal(g.roundsLost, 2);
-  assert.equal(g.failed, true);       // second loss is elimination
+  assert.equal(g.failed, false);      // second loss still survivable
+  play("lose");
+  assert.equal(g.roundsLost, 3);
+  assert.equal(g.failed, true);       // third loss is elimination
   assert.equal(g.complete, false);
 });
 
@@ -227,7 +230,7 @@ test("a fixed seed reproduces an identical deal and play-out", () => {
   assert.equal(playOut(a), playOut(b));
 });
 
-test("an end-to-end best-of-five always resolves to complete or failed without error", () => {
+test("an end-to-end match always resolves to complete or failed without error", () => {
   for (let seed = 1; seed <= 60; seed++) {
     const g = BJ.createGame(seed);
     let guard = 0;

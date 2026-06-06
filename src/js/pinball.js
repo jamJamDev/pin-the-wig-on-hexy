@@ -77,27 +77,21 @@
   var GUST_ACCEL = 1.7;         // x rect.h, lateral push during a fart gust
 
   // Two ASYMMETRIC flippers -- deliberately different lengths AND swings so the
-  // table plays fun but CLUMSY: floppy, lopsided, imprecise. They are for BATTING
-  // the ball, NOT for walling off the drain. The pivots sit close together so the
-  // resting tips leave only a tight center gap. Angles in screen
-  // space (y down): rest points down toward the center drain; active swings the
-  // tip generally up so a flick imparts an upward kick. Geometry (validated in
+  // table plays fun but CLUMSY: floppy, lopsided, imprecise. Angles in screen
+  // space (y down): rest points down toward the center; active swings the tip
+  // generally up so a flick imparts an upward kick. Geometry (validated in
   // tests/pinball.test.js by simulation):
-  //  - At REST the tips leave a center surface gap of ~0.0625 -- wider than the
-  //    0.060 ball, so an UNDEFENDED ball falls through and drains (no free save).
-  //  - Engaging the flippers does NOT permanently wall the center. A HELD flipper
-  //    sweeps a full 180 (rest +/- pi); as both tips rotate up and over they open
-  //    the center wide. Across that sweep the minimum center surface gap dips below
-  //    the ball (down to ~0.030) -- so a clumsy held bat can momentarily block a
-  //    ball at the narrowest instant, but it is never a stable seal: a centered
-  //    ball still drains because the sweep opens the center as the flippers reach
-  //    180. (A lucky clumsy bat can happen; a guaranteed save cannot.)
+  //  - The pivots sit close enough that at REST the two capsule tips leave a center
+  //    surface gap (~0.017) far narrower than the 0.060 ball, so the center is
+  //    SEALED: a centered ball settling onto the tips is caught, not drained. The
+  //    drain hazards are the side chutes (left kill chute, right shooter lane), not
+  //    the middle. The ball still serves/launches and can be flipped back up.
   //  - Each pivot sits BELOW the funnel-wall line at its x, so the flipper tucks
   //    under the funnel with no under-flipper wedge. The V funnel ends are derived
   //    from the rest tips (flipperRestTipN) so the funnel always meets the tip.
   var FLIPPERS = [
-    { side: "left",  px: 0.252, py: 0.83, len: 0.200, rest: 0.530, active: -0.95 }, // px left of symmetry: raising py lifts the long left tip toward the right tip, so the wider gap keeps a centered ball from cradling on both tips (drain invariant)
-    { side: "right", px: 0.678, py: 0.86, len: 0.155, rest: 2.850, active: 3.90 }
+    { side: "left",  px: 0.272, py: 0.83, len: 0.200, rest: 0.530, active: -0.95 },
+    { side: "right", px: 0.658, py: 0.86, len: 0.155, rest: 2.850, active: 3.90 }
   ];
 
   // Normalized rest-tip of a flipper definition (y scaled by aspect to match the
@@ -142,9 +136,8 @@
   // tickRule/step is what makes each one a different challenge, not a reskin.
   // Off-center side kickers and angled "slingshot" walls (bounce > 1) live in the
   // upper/mid field only -- never spanning the center column below the bumper
-  // field -- so the bottom V always funnels an undefended ball to the drain. The
-  // center drain gap is sacred: nothing here catches or ledges a centered ball
-  // above the flippers (proven by tests/pinball.test.js).
+  // field -- so the bottom V funnels a ball down to the flippers, which seal the
+  // center and catch it (the drain hazards are the side chutes, not the middle).
   var TABLES = [
     {
       id: "warmup",
@@ -664,7 +657,8 @@
 
     b.spin += b.vx * 0.0008;
 
-    // Bottom-center drain (the V funnel guides an undefended ball here).
+    // Bottom drain backstop: any ball that gets below the flipper line (past the
+    // sealed center) is lost.
     if (b.y > rect.y + rect.h * DRAIN_Y) { b.live = false; ev.drained = true; return ev; }
 
     // Left kill chute: worked left of the inner wall and below the mouth -> lost.

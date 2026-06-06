@@ -259,7 +259,7 @@
     }
     parkWig();
     // The payline overlay is measured in pixels, so realign it to the new grid box.
-    if (game.state === "slots") requestAnimationFrame(drawPaylines);
+    if (game.state === "slots") requestAnimationFrame(function () { drawPaylines(); });
   }
 
   // ---------- Assets ----------
@@ -920,7 +920,7 @@
     const acc = Math.round((game.score / maxScore) * 100);
     // The win (GOD GAMER) is the full gauntlet: qualify on base score, pin the
     // wig on all five pinball course variations, beat the True God Gamer at
-    // blackjack (win 4 of 5 hands), THEN turn 1000 credits into 2000 on the
+    // blackjack (win 4 hands), THEN turn 1000 credits into 2000 on the
     // slot machine. Falling short at any stage -- including busting the slot --
     // is not a win.
     const won = game.pinPlayed && game.pinCleared >= PINBALL.CAPTURE_GOAL
@@ -1191,7 +1191,15 @@
     const cx = view.w / 2;
     const cy = view.h * 0.62;
     const base = Math.min(view.w, view.h);
-    const ringR = base * 0.20;
+    // On a tall/narrow phone the smaller dimension is the width, which left the can
+    // lid small. There, take a bigger share of the width -- but never more than the
+    // clear space above the dial (so it can't crowd Molly's head at 0.30h, half a
+    // head tall) nor overrun the bottom. Landscape/desktop keep the original sizing.
+    // Visual only: scoring is angular, independent of ringR.
+    const portrait = view.h > view.w;
+    const ringR = portrait
+      ? Math.min(view.w * 0.30, view.h * 0.24, 0.29 * view.h - 0.17 * base)
+      : base * 0.20;
 
     // Telegraph progress (0..1) drives Molly's lunge strike and the paw swipe.
     const h = run.haz;
@@ -1713,12 +1721,12 @@
 
   // ---------- Blackjack finale (God Gamer final boss) ----------
   // Clearing all five pinball tables earns the last gate: blackjack vs. the True God Gamer,
-  // best of five, win four to be crowned. The pure rules/progression live in
-  // BLACKJACK (src/js/blackjack.js); this section is the DOM shell -- it renders
-  // the felt, wires Hit/Stand/Next, and folds each settled hand into the match.
+  // win four hands before a third loss to be crowned. The pure rules/progression
+  // live in BLACKJACK (src/js/blackjack.js); this section is the DOM shell -- it
+  // renders the felt, wires Hit/Stand/Next, and folds each settled hand into the match.
   //   pinDone (victory) -> startBlackjack() -> state "blackjack"
   //   Hit/Stand -> hand settles -> Next applies the result
-  //   4 wins -> finishBlackjack(true);  2nd loss -> finishBlackjack(false)
+  //   4 wins -> finishBlackjack(true);  3rd loss -> finishBlackjack(false)
   //   finishBlackjack() -> endGame()  (the existing rank screen, reused)
   function startBlackjack() {
     game.pin = null;            // pinball phase is over; stop drawing the table
@@ -1729,7 +1737,7 @@
     game.state = "blackjack";
     el.hud.classList.add("hidden");
     el.hud.setAttribute("aria-hidden", "true");
-    setStage(4);
+    setStage(4, false);   // panel eyebrow names the stage; no floating chip over it
     bjRender();
     show(el.screenBlackjack, true);
     chord([523, 659, 784], 0.16);
@@ -1786,9 +1794,13 @@
         : "You take the hand.";
     }
     if (r === "lose") {
-      return (g.roundsLost + 1 > BLACKJACK.LOSSES_ALLOWED)
-        ? "The True God Gamer wins. Your God Gamer run ends here."
-        : "The True God Gamer takes it — one loss left to give.";
+      if (g.roundsLost + 1 > BLACKJACK.LOSSES_ALLOWED) {
+        return "The True God Gamer wins. Your God Gamer run ends here.";
+      }
+      var left = BLACKJACK.LOSSES_ALLOWED - (g.roundsLost + 1);
+      return left > 0
+        ? "The True God Gamer takes it — " + left + " loss" + (left === 1 ? "" : "es") + " left to give."
+        : "The True God Gamer takes it — one more loss ends your run.";
     }
     return "Push. Doesn't count — re-deal.";
   }
@@ -2029,7 +2041,7 @@
     slotAnim = null;
     el.hud.classList.add("hidden");
     el.hud.setAttribute("aria-hidden", "true");
-    setStage(5);
+    setStage(5, false);   // panel eyebrow names the stage; no floating chip over it
     slotsRender();
     show(el.screenSlots, true);
     // The grid is display:none until the line above, and the browser's first
@@ -2048,7 +2060,7 @@
     void el.slotsGrid.offsetWidth;                 // flush any pending layout
     requestAnimationFrame(function () {
       drawPaylines();
-      requestAnimationFrame(drawPaylines);
+      requestAnimationFrame(function () { drawPaylines(); });
     });
     setTimeout(function () { if (game.state === "slots") drawPaylines(); }, 250);
   }
@@ -2147,7 +2159,7 @@
     updateSlotWarning(g, cost, canSpin);
 
     // Repaint the active paylines (next frame, once layout settles).
-    requestAnimationFrame(drawPaylines);
+    requestAnimationFrame(function () { drawPaylines(); });
   }
 
   function updateSlotWarning(g, cost, canSpin) {
@@ -2167,7 +2179,7 @@
   // centers so it stays aligned at any size. Each line gets its own hue (a quiet
   // rainbow), and the spin's winning lines are drawn bright on top. Recomputed
   // whenever the line count changes or the window resizes.
-  function drawPaylines() {
+  function drawPaylines(guidesOnly) {
     var g = game.slot;
     var svg = el.slotsOverlay;
     if (!g || !svg) return;
@@ -2226,6 +2238,9 @@
       var hue = Math.round((i / SLOT.MAX_LINES) * 330);
       stroke(pointsFor(lines[i], SLOT.REELS), "hsl(" + hue + " 95% 66%)", "2.2", "0.5");
     }
+    // While the reels roll we draw the guides ONLY -- the bright winning/special
+    // lines from the prior spin must not linger and glow through the next roll.
+    if (guidesOnly) return;
     // ...then the winning lines on top: a dark halo first (so the bright stroke reads
     // against the glyphs it crosses), then the bright stroke in that line's hue.
     for (var j = 0; j < lines.length; j++) {
@@ -2296,6 +2311,21 @@
     slotsRender();
   }
 
+  // Strip the previous spin's win glow: drop the per-cell highlight tags and redraw
+  // the overlay with the dim payline guides only (no bright winning/special lines).
+  function clearSlotHighlights() {
+    for (var col = 0; col < slotCells.length; col++) {
+      var cells = slotCells[col];
+      if (!cells) continue;
+      for (var row = 0; row < cells.length; row++) {
+        var cell = cells[row];
+        if (!cell) continue;
+        cell.classList.remove("is-win", "is-bonus", "is-bald", "cell-burst");
+      }
+    }
+    drawPaylines(true);
+  }
+
   function slotSpin() {
     var g = game.slot;
     if (!g || g.complete || g.bust || slotAnim) return;
@@ -2313,7 +2343,10 @@
       return;
     }
 
-    // Light up the machine and start the reels rolling.
+    // Light up the machine and start the reels rolling. Clear the prior spin's win
+    // highlights first -- both the bright overlay lines and the per-cell glow tags --
+    // so nothing from the last result keeps glowing through this roll.
+    clearSlotHighlights();
     setSlotsBusy(true);
     el.btnSlotsSpin.disabled = true;
     el.slotsGrid.classList.add("is-spinning");
@@ -2937,10 +2970,14 @@
 
   // Gauntlet-progress badge. Stage 1 (the ten pin rounds) stays a secret -- no
   // indicator shows until the player reaches stage 2, then it counts up 2..5
-  // across the remaining stages. Pass 0 (or 1) to hide it.
-  function setStage(n) {
-    const reveal = n >= 2;
-    if (reveal) el.stageValue.textContent = n + " / " + TOTAL_STAGES;
+  // across the remaining stages. Pass 0 (or 1) to hide it. The blackjack and
+  // slots legs are full-screen DOM panels whose own eyebrow already names the
+  // stage, so the floating chip is suppressed there (floating=false) -- otherwise
+  // its top-centre position lands on the panel's description on every screen size.
+  function setStage(n, floating) {
+    if (floating === undefined) floating = true;
+    const reveal = n >= 2 && floating;
+    if (n >= 2) el.stageValue.textContent = n + " / " + TOTAL_STAGES;
     show(el.stageIndicator, reveal);
     el.stageIndicator.setAttribute("aria-hidden", reveal ? "false" : "true");
   }

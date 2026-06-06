@@ -4,7 +4,7 @@
 // the payline catalog is a fixed set of distinct lines, the evaluator scores only
 // COMPLETE lines (no partial runs), the credit/bet state machine guards every
 // edge, a fixed seed reproduces an identical sequence, the slot bonus is bounded,
-// and -- the headline -- the rig delivers a ~60% net-win frequency with a tiny
+// and -- the headline -- the rig delivers a ~45% net-win frequency with a tiny
 // configured house edge, while what the reels show always equals what's paid.
 
 const test = require("node:test");
@@ -19,7 +19,7 @@ test("constants and paytable are well-formed", () => {
   assert.equal(S.ROWS, 5);
   assert.equal(S.START_CREDITS, 1000);
   assert.equal(S.TARGET_CREDITS, 2000);
-  assert.equal(S.WIN_RATE, 0.595);
+  assert.equal(S.WIN_RATE, 0.45);
   assert.equal(S.MAX_LINES, 30);
   // FULL_PAY is one full-line payout per PAYING symbol, ascending strictly by rank.
   assert.equal(S.FULL_PAY.length, S.PAY_SYMBOLS);
@@ -423,12 +423,10 @@ test("wins land on lines of every shape (not just horizontals) and reels never r
 
 test("true multi-line: a single spin can pay several lines, and they stack to the total", () => {
   // A win's payout can be split across distinct-symbol runs planted on several
-  // active lines at once. With the current single-line-heavy tuning the DEFAULT
-  // 30-line board pays mostly single crown lines (a win only has to clear a
-  // 30-unit stake, and crown is the lone single line that does), so the multi-line
-  // payout shows up at mid bet sizes, where the net-win target spans 2-3 line
-  // spreads. On a 10-line board: multi-line wins recur, peak at MAX_WIN_LINES,
-  // stay distinct, and stack to exactly the credited payout.
+  // active lines at once. At the 45% win rate each win must clear well over its
+  // stake, so even the DEFAULT 30-line board now lights up 2-3 line spreads -- and
+  // a smaller board makes them denser still. On a 10-line board: multi-line wins
+  // recur, peak at MAX_WIN_LINES, stay distinct, and stack to exactly the credited payout.
   const g = S.createGame(31);
   S.setLines(g, 10);
   S.setBet(g, 0);
@@ -566,7 +564,7 @@ function assertReelsRepeatFree(grid, label) {
   }
 }
 
-test("THE RIG: ~60% net-win frequency and the configured house edge over many spins", () => {
+test("THE RIG: ~45% net-win frequency and the configured house edge over many spins", () => {
   // Deterministic Monte Carlo: independent spins (credits reset so an early
   // bust never truncates the sample), tallying win frequency and mean delta.
   const N = 50000;

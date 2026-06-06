@@ -351,47 +351,42 @@ test("the two flippers are asymmetric in both length and swing magnitude", () =>
   assert.ok(Math.abs(leftSwing - rightSwing) > 1e-6, "flippers must swing different magnitudes");
 });
 
-test("an undefended ball above the center gap drains with flippers at rest", () => {
+test("a centered ball at rest is caught by the sealed center, not drained", () => {
   const run = runOnTable("warmup");
   // Flippers explicitly parked at rest (the resting, undefended state).
   for (const f of run.geom.flippers) { f.angle = f.target = f.prevAngle = f.rest; }
   run.ball.live = true;
-  run.ball.x = run.rect.x + run.rect.w * 0.5;   // dead-center over the drain gap
+  run.ball.x = run.rect.x + run.rect.w * 0.5;   // dead-center over the sealed gap
   run.ball.y = run.rect.y + run.rect.h * 0.78;  // just above the flipper line
   run.ball.vx = 0; run.ball.vy = 0;
   let drained = false;
   for (let i = 0; i < 200 && !drained; i++) {
-    // Keep flippers pinned at rest every step (no defense).
+    // Keep flippers pinned at rest every step (no input): the tips alone must hold.
     for (const f of run.geom.flippers) { f.angle = f.target = f.rest; }
     if (P.step(run, 0.016, {}).drained) drained = true;
   }
-  assert.equal(drained, true, "rest flippers leave a gap wide enough to drain");
+  assert.equal(drained, false, "the center is sealed: a centered ball must be caught, not drained");
+  assert.equal(run.ball.live, true, "a caught ball stays in play");
 });
 
-test("both flippers held engaged do NOT seal the center -- a ball still drains", () => {
-  // Design intent (per user direction): the flippers are clumsy, not a wall.
-  // Engaging BOTH flippers must NOT guarantee a save -- a centered ball above the
-  // gap can always squeeze through and drain even while both are held. There is no
-  // reliable seal; the center is never impenetrable.
-  const run = runOnTable("warmup");
-  // Hold BOTH flippers down and integrate so they are in the engaged sweep (and
-  // ultimately reach the full 180), driving the tips through the narrowest point.
-  P.setFlipper(run, "left", true);
-  P.setFlipper(run, "right", true);
-  // Let the flippers begin their sweep so they are actively engaged, not at rest.
-  for (let i = 0; i < 3; i++) P.step(run, 0.016, {});
-  run.ball.live = true;
-  run.ball.x = run.rect.x + run.rect.w * 0.5;   // dead-center over the gap
-  run.ball.y = run.rect.y + run.rect.h * 0.74;  // just above the engaged tips
-  run.ball.vx = 0; run.ball.vy = 0;
-  let drained = false;
-  for (let i = 0; i < 400 && !drained; i++) {
-    // Keep both flippers commanded down the whole time (held engaged).
-    P.setFlipper(run, "left", true);
-    P.setFlipper(run, "right", true);
-    if (P.step(run, 0.016, {}).drained) drained = true;
+test("the sealed center holds a settling ball across the whole gap, not just dead-center", () => {
+  // The gap between the resting tips is narrower than the ball, so a ball settling
+  // anywhere across the center band is caught -- the drain hazards are the side
+  // chutes, not the middle. Widening the gap back would let one of these drain.
+  for (const offset of [0.44, 0.47, 0.50, 0.53]) {
+    const run = runOnTable("warmup");
+    for (const f of run.geom.flippers) { f.angle = f.target = f.prevAngle = f.rest; }
+    run.ball.live = true;
+    run.ball.x = run.rect.x + run.rect.w * offset;
+    run.ball.y = run.rect.y + run.rect.h * 0.78;
+    run.ball.vx = 0; run.ball.vy = 0;
+    let drained = false;
+    for (let i = 0; i < 200 && !drained; i++) {
+      for (const f of run.geom.flippers) { f.angle = f.target = f.rest; }
+      if (P.step(run, 0.016, {}).drained) drained = true;
+    }
+    assert.equal(drained, false, "ball settling at x=" + offset + " must be caught by the sealed center");
   }
-  assert.equal(drained, true, "held flippers must not seal the center -- the ball falls through");
 });
 
 test("holding a flipper sweeps it a full 180 past the active waypoint", () => {
