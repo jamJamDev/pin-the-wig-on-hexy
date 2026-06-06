@@ -2296,6 +2296,7 @@
     el.btnSlotsSpin.disabled = true;
     el.slotsGrid.classList.add("is-spinning");
     if (el.slotsOverlay) el.slotsOverlay.classList.add("is-spinning");
+    for (var rc = 0; rc < SLOT.REELS; rc++) startReelRoll(rc);
     el.slotsCredits.textContent = staked;
     el.slotsCredits.classList.toggle("is-debt", staked < 0);
     el.slotsResult.textContent = "Rolling…";
@@ -2310,7 +2311,7 @@
     var stopAt = [base, base + stagger, base + 2 * stagger, base + 3 * stagger, base + 4 * stagger];
     if (anticipate) stopAt[SLOT.REELS - 1] += 340;
     slotAnim = {
-      start: 0, lastFlick: 0, lastTick: 0,
+      start: 0, lastTick: 0,
       finalGrid: finalGrid, lr: lr, anticipate: anticipate, anticipated: false,
       stopAt: stopAt,
       stopped: [false, false, false, false, false]
@@ -2322,7 +2323,7 @@
   function slotAnimFrame(ts) {
     var a = slotAnim, g = game.slot;
     if (!a || !g) { slotAnim = null; return; }
-    if (!a.start) { a.start = ts; a.lastFlick = ts; a.lastTick = ts; }
+    if (!a.start) { a.start = ts; a.lastTick = ts; }
     var elapsed = ts - a.start;
 
     // Lock reels left-to-right as each one's stop time arrives.
@@ -2346,34 +2347,66 @@
         sweep(280, 920, 0.36, "sine", 0.09);
       }
     }
-    // Flicker random symbols on the reels still spinning.
-    if (ts - a.lastFlick >= SLOT_FLICK_MS) {
-      a.lastFlick = ts;
-      for (var c2 = 0; c2 < SLOT.REELS; c2++) if (!a.stopped[c2]) flickReelColumn(c2);
-      if (ts - a.lastTick >= SLOT_FLICK_MS * 1.5) { a.lastTick = ts; sfxReelTick(); }
-    }
+    // The reels' motion is the CSS scroll strip (startReelRoll); here we only keep
+    // the mechanical reel-tick clicking in time with it while any reel still spins.
+    if (ts - a.lastTick >= SLOT_FLICK_MS * 1.5) { a.lastTick = ts; sfxReelTick(); }
     var allStopped = true;
     for (var c3 = 0; c3 < SLOT.REELS; c3++) if (!a.stopped[c3]) allStopped = false;
     if (allStopped) { endSlotAnim(); return; }
     requestAnimationFrame(slotAnimFrame);
   }
 
-  function flickReelColumn(col) {
+  // Build the scrolling symbol strip that overlays one reel while it spins. The strip
+  // is two identical halves of random PAYING glyphs (so a bald head / golden wig stays
+  // a surprise that resolves on the lock, never flashing past mid-roll); the CSS loops
+  // it to translateY(-50%) for a seamless scroll. Each reel rolls at a slightly
+  // different speed so the five columns don't move in lockstep.
+  var ROLL_TILES = 6;
+  function startReelRoll(col) {
     var cells = slotCells[col];
-    if (!cells) return;
-    // The blur shows only the PAYING glyphs, so a bald head / golden wig is a
-    // surprise that resolves on the lock rather than flashing past in the roll.
-    for (var row = 0; row < SLOT.ROWS; row++) {
-      cells[row].textContent = SLOT.SYMBOLS[(Math.random() * SLOT.PAY_SYMBOLS) | 0].glyph;
+    if (!cells || !cells[0]) return;
+    var reel = cells[0].parentNode;
+    if (!reel) return;
+    stopReelRoll(col);                       // never stack two strips on one reel
+    reel.classList.add("is-rolling");        // hide the static cells so old symbols can't bleed through
+    var roll = document.createElement("div");
+    roll.className = "slots-reel-roll";
+    var strip = document.createElement("div");
+    strip.className = "slots-reel-roll-strip";
+    strip.style.animationDuration = (0.34 + col * 0.035).toFixed(3) + "s";
+    var glyphs = [];
+    for (var i = 0; i < ROLL_TILES; i++) {
+      glyphs.push(SLOT.SYMBOLS[(Math.random() * SLOT.PAY_SYMBOLS) | 0].glyph);
     }
+    for (var half = 0; half < 2; half++) {
+      for (var t = 0; t < ROLL_TILES; t++) {
+        var tile = document.createElement("div");
+        tile.className = "slots-reel-roll-tile";
+        tile.textContent = glyphs[t];
+        strip.appendChild(tile);
+      }
+    }
+    roll.appendChild(strip);
+    reel.appendChild(roll);
+  }
+
+  function stopReelRoll(col) {
+    var cells = slotCells[col];
+    if (!cells || !cells[0]) return;
+    var reel = cells[0].parentNode;
+    if (!reel) return;
+    reel.classList.remove("is-rolling");     // re-reveal the cells (now holding the final symbols)
+    var roll = reel.querySelector(".slots-reel-roll");
+    if (roll) reel.removeChild(roll);
   }
 
   function lockReelColumn(col, finalGrid) {
     var cells = slotCells[col];
     if (!cells) return;
-    for (var row = 0; row < SLOT.ROWS; row++) {
+    for (var row = 0; row < SLOT.ROWS; row++) {  // paint the final symbols first...
       paintSlotCell(cells[row], finalGrid[row][col]);
     }
+    stopReelRoll(col);                       // ...then drop the strip + reveal the cells
     var reel = cells[0] && cells[0].parentNode;
     if (reel) {
       reel.classList.remove("anticipating");
@@ -2383,6 +2416,7 @@
 
   function endSlotAnim() {
     slotAnim = null;
+    for (var rc = 0; rc < SLOT.REELS; rc++) stopReelRoll(rc);
     el.slotsGrid.classList.remove("is-spinning");
     if (el.slotsOverlay) el.slotsOverlay.classList.remove("is-spinning");
     var lr = game.slot ? game.slot.lastResult : null;

@@ -676,8 +676,12 @@ html, body {
     radial-gradient(circle at 50% 34%, rgba(254, 0, 0, 0.10), transparent 70%),
     rgba(0, 0, 0, 0.34);
   border: 1px solid var(--panel-edge);
+  /* Sits above the payline overlay so the symbols read OVER the lines (the lines
+     show through the translucent cells + in the gutters between them). */
+  position: relative;
+  z-index: 1;
 }
-.slots-reel { display: flex; flex-direction: column; gap: clamp(5px, 1.6vw, 9px); }
+.slots-reel { display: flex; flex-direction: column; gap: clamp(5px, 1.6vw, 9px); position: relative; }
 .slots-cell {
   display: flex;
   align-items: center;
@@ -753,7 +757,7 @@ html, body {
   height: 100%;
   pointer-events: none;
   overflow: visible;
-  z-index: 2;
+  z-index: 0;            /* below the grid -- paylines run behind the symbols */
 }
 .slots-overlay polyline { transition: stroke-opacity 0.18s ease, stroke-width 0.18s ease; }
 
@@ -773,6 +777,59 @@ html, body {
 }
 .slots-overlay.is-spinning { animation: slots-rgb 0.85s linear infinite; opacity: 0.85; }
 @keyframes slots-rgb { to { filter: hue-rotate(360deg); } }
+
+/* While a reel spins it is covered by a continuously scrolling symbol strip, so the
+   column reads as a physically spinning reel rather than glyphs blinking in place.
+   The strip is two identical halves; animating it to translateY(-50%) lands the
+   second half exactly where the first began, looping with no visible seam. Tile
+   pitch equals the cell pitch (cell + gap) across the whole clamp range, so the
+   streaming symbols line up with the five static rows underneath. The static cells
+   stay put beneath it (they hold the settled grid + the payline anchors); the strip
+   is removed the instant the reel locks, revealing the final symbols. */
+.slots-reel-roll {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 11px;
+  pointer-events: none;
+  z-index: 2;
+  /* An opaque reel-window surface: it sits exactly over the (now hidden) cells, so the
+     PRIOR board's symbols are fully occluded -- only the scrolling strip shows. The
+     translucent fill + inset edge read like the cell tiles over the same grid back-
+     ground, so the spinning column matches the settled look. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.05)),
+    radial-gradient(circle at 50% 34%, rgba(254, 0, 0, 0.10), transparent 70%),
+    #120303;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10);
+}
+.slots-reel-roll-strip {
+  display: flex;
+  flex-direction: column;
+  animation: slots-reel-roll 0.4s linear infinite;
+  will-change: transform;
+  filter: blur(0.7px);                      /* motion smear -- you can almost catch a symbol */
+  /* Fade symbols as they enter/leave the window top and bottom (the mask rides the
+     scrolling strip, not the whole overlay, so the opaque surface behind stays solid). */
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 14%, #000 86%, transparent);
+          mask-image: linear-gradient(180deg, transparent, #000 14%, #000 86%, transparent);
+}
+/* While a reel rolls, its static cells are hidden so the old symbols can't bleed
+   through the scrolling strip; they reappear (repainted to the final grid) on lock. */
+.slots-reel.is-rolling .slots-cell { visibility: hidden; }
+.slots-reel-roll-tile {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: clamp(47px, 12.6vw, 71px);        /* == cell + gap, matches the row pitch */
+  font-size: clamp(22px, 6vw, 34px);
+  line-height: 1;
+}
+@keyframes slots-reel-roll {
+  from { transform: translateY(0); }
+  to   { transform: translateY(-50%); }
+}
 
 /* Each reel snaps with a short settle bounce as it locks. */
 .slots-reel.just-stopped { animation: slots-reel-stop 0.26s cubic-bezier(0.18, 1.4, 0.4, 1); }
@@ -969,6 +1026,7 @@ html, body {
   .slots-result.is-win, .slots-result.is-lose, .slots-result.is-bonus, .slots-result.is-bald,
   .slots-result.is-rolling, .slots-warn,
   .slots-reel.just-stopped, .slots-reel.anticipating, .slots-meter-num.is-pop,
+  .slots-reel-roll-strip,
   .slots-grid.is-spinning, .slots-overlay.is-spinning,
   .slots-overlay polyline.win, .slots-overlay polyline.special-bonus, .slots-overlay polyline.special-bald,
   .slots-flash, .slots-stage.slots-shake-soft, .slots-stage.slots-shake-hard { animation: none; }
