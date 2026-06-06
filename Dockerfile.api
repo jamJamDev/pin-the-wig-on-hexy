@@ -14,7 +14,7 @@ RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin ptwo
 WORKDIR /app
 
 # Only the API modules -- no assets, no tests, no Node tooling.
-COPY scripts/dev_server.py scripts/leaderboard_store.py scripts/rate_limit.py scripts/submission_token.py ./scripts/
+COPY scripts/dev_server.py scripts/broadcast_store.py scripts/leaderboard_store.py scripts/rate_limit.py scripts/submission_token.py ./scripts/
 
 # data/ is the sole writable path at runtime (a mounted named volume); pre-create
 # it owned by the runtime user so writes succeed under a read-only root filesystem.

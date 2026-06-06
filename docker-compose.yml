@@ -17,6 +17,11 @@ services:
     image: ptwoh-api:latest
     restart: unless-stopped
     networks: [app]
+    # Operator broadcast secret, from the gitignored root .env. Blank/unset keeps
+    # broadcasting disabled (the server refuses every publish); the in-memory
+    # broadcast slot needs no writable path, so read_only below still holds.
+    environment:
+      - PTWOH_ADMIN_TOKEN=${PTWOH_ADMIN_TOKEN:-}
     volumes:
       - ptwoh_data:/app/data            # leaderboard persistence -- survives restarts/rebuilds
     read_only: true                      # immutable root fs; the only writable path is the volume

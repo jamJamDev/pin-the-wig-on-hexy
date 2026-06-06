@@ -3,10 +3,10 @@
 (() => {
   const TOTAL_ROUNDS = 10;
   const TOTAL_STAGES = 5;
-  // Base-game score (70% of a perfect 10-round run) that unlocks the pinball
+  // Base-game score (60% of a perfect 10-round run) that unlocks the pinball
   // finale. Measured on the ten pin rounds ALONE -- the Feed Molly bonus is a
   // separate pass/fail gate whose points never count toward this threshold.
-  const PINBALL_UNLOCK = TOTAL_ROUNDS * 1000 * 0.70;
+  const PINBALL_UNLOCK = TOTAL_ROUNDS * 1000 * 0.60;
   // TEMP dev shortcuts for tuning the finale: with "?pinball" in the URL every
   // game start (and "Play Again") drops straight into the pinball bonus; with
   // "?blackjack" it drops straight into the blackjack showdown (as if pinball was
@@ -28,7 +28,8 @@
   const INITIALS_KEY = "ptwoh.initials";   // remembered 3-letter tag
   const OWNER_KEY = "ptwoh.ownerToken";    // secret -> proves ownership of this browser's initials
   const LB_API = "api/leaderboard";        // same-origin; served by scripts/dev_server.py
-  const DEFAULT_MUSIC_VOL = 0.5;   // radio starts at half volume
+  const BCAST_API = "api/broadcast";       // operator broadcast channel (same-origin)
+  const DEFAULT_MUSIC_VOL = 0.2;   // radio starts quiet, at 20%
   const RADIO_ANCHOR_MS = 0;   // Unix epoch -- shared anchor so every visitor is in sync
   const LIVE_DRIFT_TOLERANCE = 2.0;   // seconds of slack before playback counts as "off air"
   const PREV_RESTART_SEC = 2;  // "prev" restarts the current track if this far in
@@ -80,6 +81,7 @@
   const ACH = window.PTWOHAchievements || null;
   const LBOARD = window.PTWOHLeaderboard || null;
   const SUBMIT = window.PTWOHSubmission || null;  // signs leaderboard POSTs
+  const BCAST = window.PTWOHBroadcast || null;    // operator broadcast overlay
 
   // Anchor geometry, expressed as fractions of each sprite's own box.
   // Tuned for assets/bald_no_bg.png (448x544) + assets/wig.png (497x450).
@@ -222,6 +224,9 @@
     lbInitials: document.getElementById("lb-initials"),
     btnLbSubmit: document.getElementById("btn-lb-submit"),
     lbStatus: document.getElementById("lb-status"),
+    // Operator broadcast overlay (published via scripts/broadcast.sh)
+    broadcastOverlay: document.getElementById("broadcast-overlay"),
+    broadcastText: document.getElementById("broadcast-text"),
   };
 
   // ---------- Layout ----------
@@ -2992,11 +2997,12 @@
   // ---------- Music / Radio ----------
   // An always-on "radio station": the album is one looping timeline and the
   // play position comes from the wall clock, so every visit lands live. The
-  // track order reshuffles each UTC day. The widget loads looking like it is
-  // already playing (silent, clock-driven progress); the first interaction
-  // engages real audio -- unmute jumps to the live spot, after which it is a
-  // plain CD player (pause holds, skip changes track, skip-while-paused stays
-  // paused). Music has its own mute, independent of the game's sound toggle.
+  // track order reshuffles each UTC day. The widget loads showing the live
+  // clock-driven position (silent until the browser allows audio); the first
+  // interaction anywhere on the page starts it playing unmuted at the live spot,
+  // after which it is a plain CD player (pause holds, skip changes track,
+  // skip-while-paused stays paused). Music has its own mute, independent of the
+  // game's sound toggle.
   const radio = {
     ready: false,
     tracks: [],      // manifest order: [{file, title, duration}]
@@ -3008,7 +3014,7 @@
     gen: 0,          // load generation, so stale loadedmetadata seeks no-op
     engaged: false,  // has the user taken control (left the live preview)?
     paused: false,   // CD transport state (after engage)
-    musicMuted: true,
+    musicMuted: false,
     volume: DEFAULT_MUSIC_VOL,
     accum: 0,        // audible seconds on the current track-play
     lastTime: 0,
@@ -3055,7 +3061,7 @@
     radio.volume = loadVolume();
     radio.audio = new Audio();
     radio.audio.preload = "auto";
-    radio.audio.muted = true;
+    radio.audio.muted = false;
     radio.audio.volume = radio.volume;
     radio.audio.addEventListener("ended", onRadioEnded);
     radio.audio.addEventListener("timeupdate", onRadioTime);
@@ -3084,13 +3090,32 @@
 
     const live = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
     radio.pos = live.index;
-    el.musicMute.classList.add("cta-pulse");
     updateMusicMeta();
     updateMuteUi();
     updatePlayPauseUi();
     updateLiveUi();
     show(el.music, true);
     radio.ready = true;
+    // Browsers block audible audio until a user gesture, so the station starts
+    // playing on the first interaction anywhere outside the player itself (its
+    // own controls engage through their click handlers). Fires once.
+    const autoStartRadio = (e) => {
+      if (!radio.ready) return;
+      if (!radio.engaged) {
+        if (e && e.target && e.target.closest && e.target.closest("#music")) return;
+        engage();
+        radio.musicMuted = false;
+        radio.paused = false;
+        const spot = RADIO.livePosition(Date.now(), radio.durations, RADIO_ANCHOR_MS);
+        startTrack(spot.index, spot.offset, { play: true, muted: false });
+        updateMuteUi();
+        updatePlayPauseUi();
+      }
+      window.removeEventListener("pointerdown", autoStartRadio);
+      window.removeEventListener("keydown", autoStartRadio);
+    };
+    window.addEventListener("pointerdown", autoStartRadio);
+    window.addEventListener("keydown", autoStartRadio);
     reconcileProgress(listenedFiles, LISTENED_KEY, radio.tracks.map((t) => t.file));
     evalAndApply(true);   // reconcile achievement totals now song count is known
   }
@@ -4037,6 +4062,112 @@
     }
   }
 
+  // ---------- Operator broadcast overlay ----------
+  // A short line the operator flashes over every player's screen in near real
+  // time. Clients poll BCAST_API a few times a minute; a new (or re-sent)
+  // message shows as large letters over the game and fades on its own. The
+  // overlay never intercepts input (CSS pointer-events: none), so it can be
+  // seen but cannot affect gameplay. Soft-guarded like the radio/leaderboard: a
+  // missing module or an unreachable server just means no overlay, never a
+  // broken game. Publishing is operator-only and lives outside the browser --
+  // scripts/broadcast.sh POSTs with the admin token (scripts/dev_server.py).
+  // Must match the opacity transition on .broadcast-overlay in styles.css.
+  const BCAST_FADE_MS = 300;
+  let bcastShownSeq = -1;     // broadcast sequence the overlay last acted on
+  let bcastVisible = false;   // is a message currently up (or fading in)?
+  let bcastHideTimer = null;  // safety auto-hide for the active message
+  let bcastFadeTimer = null;  // post-fade swap/hide (matches BCAST_FADE_MS)
+  let bcastPollTimer = null;
+  let bcastFailStreak = 0;    // consecutive poll failures -> quiet backoff
+
+  function bootBroadcast() {
+    if (!BCAST) {
+      console.error("Broadcast: src/js/broadcast.js failed to load.");
+      return;
+    }
+    pollBroadcast();
+  }
+
+  function pollBroadcast() {
+    fetch(BCAST_API, { headers: { Accept: "application/json" }, cache: "no-store" })
+      .then((res) => {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then((data) => { bcastFailStreak = 0; applyBroadcast(data); })
+      .catch((err) => {
+        // Poll forever, but stay quiet about a persistent outage: log only the
+        // first failure of a streak (not once every couple seconds), and let
+        // pollDelay() back off so a missing/again-down endpoint neither floods
+        // the console nor hammers the server. Recovers to POLL_MS on next success.
+        if (bcastFailStreak === 0) console.error("Broadcast: poll failed; will keep retrying.", err);
+        bcastFailStreak++;
+      })
+      .finally(() => { bcastPollTimer = setTimeout(pollBroadcast, BCAST.pollDelay(bcastFailStreak)); });
+  }
+
+  // Drive the overlay from a polled payload. A new/re-sent message (re)shows --
+  // replacing whatever is up with a clean fade swap; a still-active one refreshes
+  // the safety timer; a cleared/expired slot fades out.
+  function applyBroadcast(data) {
+    const view = BCAST.decide(bcastShownSeq, data);
+    if (view.visible) {
+      if (view.isNew) {
+        bcastShownSeq = view.seq;
+        showBroadcast(view.text, view.displayMs);
+      } else if (bcastVisible) {
+        armBroadcastHide(view.displayMs);   // keep it up while the server says active
+      }
+    } else {
+      bcastShownSeq = view.seq;   // remember the cleared seq so it never re-shows
+      if (bcastVisible) hideBroadcast();
+    }
+  }
+
+  // Put the message on screen: set the text, replay the pop, and fade in.
+  function renderBroadcast(text, displayMs) {
+    el.broadcastText.textContent = text;   // textContent: never interpret as HTML
+    el.broadcastOverlay.classList.remove("hidden");
+    el.broadcastOverlay.setAttribute("aria-hidden", "false");
+    el.broadcastText.style.animation = "none";   // restart the entrance pop...
+    void el.broadcastOverlay.offsetWidth;          // ...by forcing a reflow first
+    el.broadcastText.style.animation = "";
+    el.broadcastOverlay.classList.add("in");       // opacity 0 -> 1 (fade in)
+    bcastVisible = true;
+    armBroadcastHide(displayMs);
+  }
+
+  function showBroadcast(text, displayMs) {
+    if (!el.broadcastOverlay || !el.broadcastText) return;
+    if (bcastFadeTimer) { clearTimeout(bcastFadeTimer); bcastFadeTimer = null; }
+    if (bcastHideTimer) { clearTimeout(bcastHideTimer); bcastHideTimer = null; }
+    if (bcastVisible) {
+      // A newer message arrived while one is up: fade the current out, then fade
+      // the new one in -- so a 999s message yields immediately to the next send.
+      el.broadcastOverlay.classList.remove("in");   // opacity -> 0 (fade out)
+      bcastFadeTimer = setTimeout(() => renderBroadcast(text, displayMs), BCAST_FADE_MS);
+    } else {
+      renderBroadcast(text, displayMs);
+    }
+  }
+
+  function armBroadcastHide(ms) {
+    if (bcastHideTimer) clearTimeout(bcastHideTimer);
+    bcastHideTimer = setTimeout(hideBroadcast, Math.max(BCAST.MIN_DISPLAY_MS, ms || 0));
+  }
+
+  function hideBroadcast() {
+    if (bcastHideTimer) { clearTimeout(bcastHideTimer); bcastHideTimer = null; }
+    bcastVisible = false;
+    if (!el.broadcastOverlay) return;
+    el.broadcastOverlay.classList.remove("in");   // opacity -> 0 (fade out)
+    el.broadcastOverlay.setAttribute("aria-hidden", "true");
+    if (bcastFadeTimer) clearTimeout(bcastFadeTimer);
+    bcastFadeTimer = setTimeout(() => {
+      if (!bcastVisible) el.broadcastOverlay.classList.add("hidden");   // display:none after the fade
+    }, BCAST_FADE_MS);
+  }
+
   // ---------- Boot ----------
   function boot() {
     resize();
@@ -4045,6 +4176,7 @@
     updateHud();
     bootAchievements();
     bootLeaderboard();
+    bootBroadcast();
     bootVoice();
     bootMusic();
     loadAssets().then(() => {

@@ -389,22 +389,22 @@ test("the sealed center holds a settling ball across the whole gap, not just dea
   }
 });
 
-test("holding a flipper sweeps it a full 180 past the active waypoint", () => {
+test("holding a flipper sweeps it a full 360 past the active waypoint", () => {
   // Left side.
   let run = runOnTable("warmup");
-  let f = holdFlipper(run, "left", true, 40);   // 40*0.016 = 0.64s; pi/24 = 0.131s
+  let f = holdFlipper(run, "left", true, 40);   // 40*0.016 = 0.64s; 2pi/24 = 0.262s
   assert.ok(Math.abs(f.angle - f.rest) > Math.abs(f.active - f.rest) + 0.5,
     "held left flipper must sweep well past the active waypoint");
-  assert.ok(Math.abs(Math.abs(f.angle - f.rest) - Math.PI) < 1e-3,
-    "held left flipper must reach a full 180 (pi) from rest");
+  assert.ok(Math.abs(Math.abs(f.angle - f.rest) - Math.PI * 2) < 1e-3,
+    "held left flipper must reach a full 360 (2pi) from rest");
 
   // Right side.
   run = runOnTable("warmup");
   f = holdFlipper(run, "right", true, 40);
   assert.ok(Math.abs(f.angle - f.rest) > Math.abs(f.active - f.rest) + 0.5,
     "held right flipper must sweep well past the active waypoint");
-  assert.ok(Math.abs(Math.abs(f.angle - f.rest) - Math.PI) < 1e-3,
-    "held right flipper must reach a full 180 (pi) from rest");
+  assert.ok(Math.abs(Math.abs(f.angle - f.rest) - Math.PI * 2) < 1e-3,
+    "held right flipper must reach a full 360 (2pi) from rest");
 });
 
 test("releasing a tapped flipper springs it back to rest", () => {

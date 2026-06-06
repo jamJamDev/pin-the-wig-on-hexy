@@ -62,6 +62,7 @@
         <li><b>Drag</b> it over Hexy's bouncing head.</li>
         <li><b>Release</b> on the target to pin it.</li>
         <li>Every round piles on a new <b>movement twist</b> &mdash; ten rounds, and they stack into chaos. Best accuracy wins.</li>
+        <li>Score at least <b>6,000 points</b> to unlock&hellip;</li>
       </ol>
       <button id="btn-start" class="btn-primary" type="button">Start</button>
       <button id="btn-leaderboard" class="btn-secondary lb-open-btn" type="button">&#127942; Leaderboard</button>
@@ -297,6 +298,10 @@
   </section>
 
   <div id="toast-wrap" class="toast-wrap" aria-live="polite"></div>
+
+  <div id="broadcast-overlay" class="broadcast-overlay hidden" aria-live="assertive" aria-hidden="true">
+    <p id="broadcast-text" class="broadcast-text"></p>
+  </div>
 </div>
 
 <script src="src/js/modifiers.js" defer></script>
@@ -306,6 +311,7 @@
 <script src="src/js/ranks.js" defer></script>
 <script src="src/js/leaderboard.js" defer></script>
 <script src="src/js/submission.js" defer></script>
+<script src="src/js/broadcast.js" defer></script>
 <script src="src/js/pinball.js" defer></script>
 <script src="src/js/blackjack.js" defer></script>
 <script src="src/js/slots.js" defer></script>

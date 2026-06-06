@@ -26,22 +26,42 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from broadcast_store import BroadcastStore, verify_admin_token  # noqa: E402
 from leaderboard_store import LeaderboardStore, OwnershipError  # noqa: E402
 from rate_limit import RateLimiter  # noqa: E402
 import submission_token  # noqa: E402
 
 # Same-origin leaderboard API: the game and this server share a host, so no CORS.
 API_PATH = "/api/leaderboard"
+# Operator broadcast channel: GET polls the active flash message, POST (admin
+# token) publishes or clears it. Same origin as the game, so no CORS.
+BROADCAST_PATH = "/api/broadcast"
 _MAX_BODY = 4096  # a leaderboard submission is a few dozen bytes; cap abuse
+_MAX_BROADCAST_BODY = 1024  # a broadcast line + ttl is tiny; cap abuse
+
+# The shared secret that gates broadcast publishing. Read once at startup from
+# the environment; blank/unset means the feature is dormant -- GET still answers
+# (empty), but every POST is refused so an unconfigured server can never be
+# driven. Never logged or returned by the API.
+_ADMIN_TOKEN = os.environ.get("PTWOH_ADMIN_TOKEN") or ""
 
 _STORE = None
 _STORE_LOCK = threading.Lock()
+
+# Process-local active broadcast. Transient by design (an operator's live stream
+# chatter), so it lives in memory only -- nothing to persist on the read-only fs.
+_BROADCAST = BroadcastStore()
 
 # In-process backstop to the Cloudflare edge rate-limit rule on the only public
 # write endpoint. A burst of 10, then ~6/min sustained per client -- orders of
 # magnitude above any real player, but it throttles scripted leaderboard spam
 # even if the edge rule is misconfigured or absent.
 _POST_LIMITER = RateLimiter(capacity=10, refill_per_sec=0.1)
+
+# Broadcast publishing is operator-driven and bursty (rapid-fire messages while
+# messing with a streamer), so a generous burst with a steady refill -- still a
+# hard backstop should the admin token ever leak.
+_BROADCAST_LIMITER = RateLimiter(capacity=20, refill_per_sec=1.0)
 
 # Single-use nonce ledger so a captured submission cannot be replayed within the
 # signing window. Bounded by submission_token.WINDOW_MS eviction.
@@ -62,13 +82,19 @@ def _store():
 class RangeHandler(SimpleHTTPRequestHandler):
     # ---- Leaderboard API ----
     def do_GET(self):
-        if urlsplit(self.path).path == API_PATH:
+        path = urlsplit(self.path).path
+        if path == API_PATH:
             return self._api_get()
+        if path == BROADCAST_PATH:
+            return self._broadcast_get()
         return super().do_GET()
 
     def do_POST(self):
-        if urlsplit(self.path).path == API_PATH:
+        path = urlsplit(self.path).path
+        if path == API_PATH:
             return self._api_post()
+        if path == BROADCAST_PATH:
+            return self._broadcast_post()
         self.send_error(404, "Not found")
 
     def _api_get(self):
@@ -144,6 +170,46 @@ class RangeHandler(SimpleHTTPRequestHandler):
             "ok": True, "rank": rank, "improved": improved, "entry": entry,
             "entries": board, "max": _store().max_entries,
         })
+
+    # ---- Operator broadcast API ----
+    def _broadcast_get(self):
+        # Polled by every client a few times a minute; a cheap in-memory read.
+        # Unauthenticated and unthrottled on purpose -- it only reveals the
+        # operator's own message, which is meant to be seen by everyone.
+        return self._send_json(200, _BROADCAST.current())
+
+    def _broadcast_post(self):
+        if not _ADMIN_TOKEN:
+            # Fail loud: an operator who set no token gets a clear reason rather
+            # than a silently ignored POST.
+            return self._send_json(
+                503, {"error": "broadcasting is not configured on this server"})
+        if not verify_admin_token(self.headers.get("X-Admin-Token"), _ADMIN_TOKEN):
+            return self._send_json(403, {"error": "invalid admin token"})
+        key = self._client_key()
+        if not _BROADCAST_LIMITER.allow(key):
+            return self._send_json(
+                429, {"error": "too many broadcasts; slow down"},
+                extra_headers={"Retry-After": str(_BROADCAST_LIMITER.retry_after(key))})
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0 or length > _MAX_BROADCAST_BODY:
+            return self._send_json(400, {"error": "invalid request body"})
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return self._send_json(400, {"error": "malformed JSON"})
+        if not isinstance(payload, dict):
+            return self._send_json(400, {"error": "expected a JSON object"})
+        if payload.get("clear"):
+            return self._send_json(200, dict(ok=True, **_BROADCAST.clear()))
+        try:
+            result = _BROADCAST.publish(payload.get("text"), payload.get("ttl_ms"))
+        except ValueError as e:
+            return self._send_json(400, {"error": str(e)})
+        return self._send_json(200, dict(ok=True, **result))
 
     def _send_json(self, code, obj, extra_headers=None):
         body = json.dumps(obj).encode("utf-8")

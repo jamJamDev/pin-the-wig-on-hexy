@@ -342,12 +342,13 @@
     for (var f = 0; f < FLIPPERS.length; f++) {
       var fd = FLIPPERS[f];
       var pv = px(rect, fd.px, fd.py);
-      // Held target is a FULL 180 flip from rest (rest +/- pi). A tap flicks the
-      // flipper up toward the `active` waypoint to bat the ball, then springs back;
-      // a hold sweeps the whole 180 arc. Neither permanently walls off the center:
-      // the held sweep may pinch narrow for an instant but rotates on to 180,
-      // reopening the center so a ball still drains (see FLIPPERS).
-      var full = fd.rest + (fd.active >= fd.rest ? 1 : -1) * Math.PI;
+      // Held target is a FULL 360 flip from rest (rest +/- 2pi -- a complete
+      // revolution). A tap flicks the flipper up toward the `active` waypoint to
+      // bat the ball, then springs back; a hold spins it the whole way around.
+      // Neither permanently walls off the center: the held spin may pinch narrow
+      // for an instant but rotates on around, reopening the center so a ball still
+      // drains (see FLIPPERS).
+      var full = fd.rest + (fd.active >= fd.rest ? 1 : -1) * TAU;
       flippers.push({
         side: fd.side, x: pv.x, y: pv.y, len: fd.len * rect.w,
         thick: FLIPPER_THICK * rect.w, rest: fd.rest, active: fd.active, full: full,
