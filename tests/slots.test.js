@@ -21,8 +21,8 @@ test("constants and paytable are well-formed", () => {
   assert.equal(S.TARGET_CREDITS, 2000);
   assert.equal(S.WIN_RATE, 0.595);
   assert.equal(S.MAX_LINES, 30);
-  // FULL_PAY is one full-line payout per symbol, ascending strictly by rank.
-  assert.equal(S.FULL_PAY.length, S.SYMBOLS.length);
+  // FULL_PAY is one full-line payout per PAYING symbol, ascending strictly by rank.
+  assert.equal(S.FULL_PAY.length, S.PAY_SYMBOLS);
   for (const p of S.FULL_PAY) assert.ok(p > 0, "every full-line payout is positive");
   for (let r = 1; r < S.FULL_PAY.length; r++) {
     assert.ok(S.FULL_PAY[r] > S.FULL_PAY[r - 1], "higher-ranked symbols pay strictly more");
@@ -30,6 +30,22 @@ test("constants and paytable are well-formed", () => {
   // The top symbol's full line always out-pays a max-line stake, so a single line
   // can always net positive -- the floor the synthesis fallback leans on.
   assert.ok(S.FULL_PAY[S.FULL_PAY.length - 1] > S.MAX_LINES, "the jackpot line beats any stake");
+
+  // Two SPECIAL symbols sit past the paying ladder: Hexy's bald head (penalty) and
+  // the golden wig (bonus).
+  assert.equal(S.SYMBOLS.length, S.PAY_SYMBOLS + 2, "5 paying symbols + bald + bonus");
+  assert.equal(S.BALD, S.PAY_SYMBOLS, "bald is the first non-paying index");
+  assert.equal(S.BONUS_SYM, S.PAY_SYMBOLS + 1, "bonus is the last index");
+  assert.equal(S.SYMBOLS[S.BALD].kind, "bald");
+  assert.equal(S.SYMBOLS[S.BONUS_SYM].kind, "bonus");
+  // Equal magnitude is what makes the pair "even out" in expectation.
+  assert.ok(S.PENALTY > 0 && S.BONUS > 0, "both specials carry real weight");
+  assert.equal(S.PENALTY, S.BONUS, "the bonus magnitude equals the penalty so the pair cancels");
+  // A bald deduction can never breach the debt floor: PENALTY at the biggest per-line
+  // bet stays within DEBT_LIMIT, so post-penalty credits never drop below -DEBT_LIMIT.
+  const maxBet = Math.max(...S.BET_TIERS);
+  assert.ok(S.PENALTY * maxBet <= S.DEBT_LIMIT,
+    "a max-bet bald line (" + S.PENALTY * maxBet + ") must stay within the debt floor (" + S.DEBT_LIMIT + ")");
 });
 
 test("the payline catalog is MAX_LINES distinct, valid lines; horizontals first", () => {
@@ -209,16 +225,18 @@ test("debt: stake to -DEBT_LIMIT is allowed, beyond it is refused", () => {
 test("debt: a spin still in the red after payout busts; a payout that clears it survives", () => {
   // The first spin's win/lose is decided by seed alone (drawn before any grid
   // synthesis), so we can pick seeds for each outcome and stake them into debt.
-  function firstSpinSeed(wantWin) {
+  function firstSpinKindSeed(wantKind) {
     for (let s = 1; s < 5000; s++) {
       const g = S.createGame(s);
       S.spin(g);                                     // default 1000 credits, can't go negative here
-      if (g.lastResult.win === wantWin) return s;
+      if (g.lastResult.kind === wantKind) return s;
     }
-    throw new Error("no seed produced win=" + wantWin);
+    throw new Error("no seed produced kind=" + wantKind);
   }
-  const loseSeed = firstSpinSeed(false);
-  const winSeed = firstSpinSeed(true);
+  // A PLAIN loss for the bust case -- not a bonus (which would add credits and clear
+  // the overdraft) -- and a paying win for the save case.
+  const loseSeed = firstSpinKindSeed("loss");
+  const winSeed = firstSpinKindSeed("win");
 
   // Lose while staked into debt -> ends in the red -> bust.
   const bust = S.createGame(loseSeed);
@@ -323,10 +341,10 @@ test("end-to-end: every seed resolves to complete or bust without error", () => 
   }
 });
 
-test("display equals payout: wins show winning lines and net positive; losses show none", () => {
-  // Many spins from a fresh, never-terminal game (credits topped up so the run
-  // never ends) -- every win must net > 0 with a non-empty highlight, every
-  // loss must net exactly -cost with no highlight.
+test("display equals payout: every outcome credits exactly what it shows", () => {
+  // Many spins from a fresh, never-terminal game (credits topped up so the run never
+  // ends, and post-stake stays >= 0 so the bald gate never trips). Each of the four
+  // outcomes must credit exactly what its highlighted lines show.
   const g = S.createGame(99);
   S.setLines(g, 10);
   S.setBet(g, 0);
@@ -337,16 +355,36 @@ test("display equals payout: wins show winning lines and net positive; losses sh
     S.spin(g);
     const lr = g.lastResult;
     if (lr.win) {
+      assert.equal(lr.kind, "win");
       assert.ok(lr.delta > 0, "a win must net positive, got " + lr.delta);
       assert.ok(lr.winningLines.length >= 1, "a win must highlight a line");
+      assert.equal(lr.bonus, 0); assert.equal(lr.penalty, 0);
       assert.equal(lr.payout, lr.delta + cost);
       // The credited payout equals the sum of highlighted line wins (what's shown).
       const shown = lr.winningLines.reduce((s, w) => s + w.lineWin, 0);
       assert.equal(shown, lr.payout, "highlighted lines must sum to the credited payout");
+    } else if (lr.kind === "loss") {
+      assert.equal(lr.payout, 0); assert.equal(lr.bonus, 0); assert.equal(lr.penalty, 0);
+      assert.equal(lr.delta, -cost, "a plain loss costs exactly the stake");
+      assert.equal(lr.winningLines.length, 0, "a plain loss highlights no paying line");
+      assert.equal(lr.specialLines.length, 0, "a plain loss highlights no special line");
+    } else if (lr.kind === "bonus") {
+      assert.equal(lr.payout, 0); assert.equal(lr.penalty, 0);
+      assert.ok(lr.bonus > 0, "a bonus awards credits");
+      assert.equal(lr.delta, lr.bonus - cost, "a bonus nets the award minus the stake");
+      assert.equal(lr.winningLines.length, 0);
+      assert.equal(lr.specialLines.length, 1, "a bonus highlights exactly one special line");
+      assert.equal(lr.specialLines[0].kind, "bonus");
+      assert.equal(lr.specialLines[0].amount, lr.bonus, "the golden-wig line shown equals the credited bonus");
     } else {
-      assert.equal(lr.payout, 0, "a loss pays nothing");
-      assert.equal(lr.delta, -cost, "a loss costs exactly the stake");
-      assert.equal(lr.winningLines.length, 0, "a loss highlights nothing");
+      assert.equal(lr.kind, "bald");
+      assert.equal(lr.payout, 0); assert.equal(lr.bonus, 0);
+      assert.ok(lr.penalty > 0, "a bald line deducts credits");
+      assert.equal(lr.delta, -lr.penalty - cost, "a bald nets minus the penalty AND the stake");
+      assert.equal(lr.winningLines.length, 0);
+      assert.equal(lr.specialLines.length, 1, "a bald highlights exactly one special line");
+      assert.equal(lr.specialLines[0].kind, "bald");
+      assert.equal(lr.specialLines[0].amount, lr.penalty, "the bald line shown equals the credited penalty");
     }
   }
 });
@@ -418,6 +456,84 @@ test("true multi-line: a single spin can pay several lines, and they stack to th
   assert.ok(peak >= 3, "the busiest wins should light up 3+ lines, peak was " + peak);
 });
 
+test("specials: bald deducts, the golden wig awards, and the pair evens out", () => {
+  // Deterministic Monte Carlo over independent spins (credits reset to 1000 so the
+  // run never ends AND the post-stake balance stays >= 0, so the bald gate never
+  // suppresses a penalty -- the symmetric case). Confirms each special spin credits
+  // exactly its one shown line, the two halves are balanced, and the total awarded
+  // matches the total deducted: the pair "evens out".
+  const g = S.createGame(5);
+  S.setLines(g, 10);
+  S.setBet(g, 0);
+  const per = S.betPerLine(g);
+  const cost = S.spinCost(g);
+  const N = 60000;
+  let nonWin = 0, special = 0, bald = 0, bonus = 0;
+  let totalPenalty = 0, totalBonus = 0;
+  for (let i = 0; i < N; i++) {
+    g.credits = 1000;
+    g.complete = false; g.bust = false;
+    g.seed = (i * 2654435761 + 7) >>> 0;   // step the seed so spins are independent
+    g.spinNum = 0;
+    S.spin(g);
+    const lr = g.lastResult;
+    if (!lr.win) nonWin++;
+    if (lr.kind === "bald") {
+      bald++; special++;
+      assert.equal(lr.payout, 0); assert.equal(lr.bonus, 0);
+      assert.equal(lr.penalty, S.PENALTY * per, "a bald line deducts PENALTY * per-line bet");
+      assert.equal(lr.delta, -lr.penalty - cost, "bald nets minus the penalty and the stake");
+      assert.equal(lr.winningLines.length, 0, "a bald spin pays no paying line");
+      assert.equal(lr.specialLines.length, 1, "a bald spin shows exactly one special line");
+      assert.equal(lr.specialLines[0].kind, "bald");
+      assert.equal(lr.specialLines[0].symbol, S.BALD);
+      assertReelsRepeatFree(g.grid, "bald spin " + i);
+      totalPenalty += lr.penalty;
+    } else if (lr.kind === "bonus") {
+      bonus++; special++;
+      assert.equal(lr.payout, 0); assert.equal(lr.penalty, 0);
+      assert.equal(lr.bonus, S.BONUS * per, "a bonus line awards BONUS * per-line bet");
+      assert.equal(lr.delta, lr.bonus - cost, "bonus nets the award minus the stake");
+      assert.equal(lr.winningLines.length, 0, "a bonus spin pays no paying line");
+      assert.equal(lr.specialLines.length, 1, "a bonus spin shows exactly one special line");
+      assert.equal(lr.specialLines[0].kind, "bonus");
+      assert.equal(lr.specialLines[0].symbol, S.BONUS_SYM);
+      assertReelsRepeatFree(g.grid, "bonus spin " + i);
+      totalBonus += lr.bonus;
+    }
+  }
+  assert.ok(special > 1000, "specials should recur often, got " + special);
+  // Among non-win spins, ~SPECIAL_LINE_RATE surface a special line.
+  const specialFrac = special / nonWin;
+  assert.ok(Math.abs(specialFrac - S.SPECIAL_LINE_RATE) < 0.02,
+    "special share of non-wins " + specialFrac.toFixed(4) + " should be ~" + S.SPECIAL_LINE_RATE);
+  // Bald and bonus are an even 50/50 split.
+  assert.ok(Math.abs(bald - bonus) < special * 0.1,
+    "bald and bonus should be balanced, got bald=" + bald + " bonus=" + bonus);
+  // The headline: total awarded ~ total deducted -- the pair evens out.
+  const avg = (totalBonus + totalPenalty) / 2;
+  assert.ok(Math.abs(totalBonus - totalPenalty) < 0.08 * avg,
+    "bonus total " + totalBonus + " should ~ penalty total " + totalPenalty + " (the pair evens out)");
+});
+
+test("synthesizeSpecialGrid plants exactly one special line and nothing else, repeat-free", () => {
+  // The behavioral contract for a special grid: exactly one full line of the requested
+  // special symbol resolves on the catalog, no paying line sneaks in, no second special
+  // line forms, and the reels stay repeat-free (no solid-column tell).
+  const allLines = S.buildPaylines();
+  for (const sym of [S.BALD, S.BONUS_SYM]) {
+    for (let seed = 1; seed <= 300; seed++) {
+      const rng = S.makeRng(seed);
+      const grid = S.synthesizeSpecialGrid(rng, S.MAX_LINES, sym);
+      const res = S.evaluate(grid, allLines, 1);
+      assert.equal(res.winningLines.length, 0, "no paying line (sym " + sym + ", seed " + seed + ")");
+      assert.equal(res.specialLines.length, 1, "exactly one special line (sym " + sym + ", seed " + seed + ")");
+      assert.equal(res.specialLines[0].symbol, sym, "the special line carries the requested symbol");
+      assertReelsRepeatFree(grid, "special grid sym " + sym + " seed " + seed);
+    }
+  }
+});
+
 test("a synthesized losing grid never pays on any line, for any seed", () => {
   // The behavioral contract: a "loss" forms no left-anchored run on the FULL
   // catalog at the maximum per-line bet -- a leak here would mean a loss silently
@@ -430,6 +546,10 @@ test("a synthesized losing grid never pays on any line, for any seed", () => {
     const res = S.evaluate(grid, allLines, 25);
     assert.equal(res.payout, 0, "losing grid paid " + res.payout + " at seed " + seed);
     assert.equal(res.winningLines.length, 0, "losing grid highlighted a line at seed " + seed);
+    // A plain loss must not secretly form a special line either (no stray award/deduction).
+    assert.equal(res.bonus, 0, "losing grid awarded a bonus at seed " + seed);
+    assert.equal(res.penalty, 0, "losing grid deducted a penalty at seed " + seed);
+    assert.equal(res.specialLines.length, 0, "losing grid formed a special line at seed " + seed);
     assertReelsRepeatFree(grid, "losing grid at seed " + seed);
   }
 });
@@ -483,11 +603,12 @@ test("requiredMeanNet matches the EV identity for the configured knobs", () => {
   // E[netWin] = ((1-WIN_RATE)+EDGE)/WIN_RATE, in multiples of cost.
   const expected = ((1 - S.WIN_RATE) + S.EDGE) / S.WIN_RATE;
   assert.ok(Math.abs(S.requiredMeanNet() - expected) < 1e-12);
-  // Every achievable full-line spread total (sum over any non-empty symbol subset).
+  // Every achievable full-line spread total (sum over any non-empty subset of the
+  // PAYING symbols -- specials never form a paying spread).
   const achievable = new Set();
-  for (let mask = 1; mask < (1 << S.SYMBOLS.length); mask++) {
+  for (let mask = 1; mask < (1 << S.FULL_PAY.length); mask++) {
     let v = 0;
-    for (let b = 0; b < S.SYMBOLS.length; b++) if (mask & (1 << b)) v += S.FULL_PAY[b];
+    for (let b = 0; b < S.FULL_PAY.length; b++) if (mask & (1 << b)) v += S.FULL_PAY[b];
     achievable.add(v);
   }
   // drawWinUnits always returns a net-positive total that some real spread can pay.

@@ -6,6 +6,12 @@
  * with the expected value per spin tuned just below zero (a slow drain). Bust to 0 and
  * the run ends in failure; reach 2000 and the gauntlet is cleared.
  *
+ * Layered on top is a symmetric SPECIAL pair that surfaces on some non-winning
+ * spins: Hexy's BARE HEAD (a full line DEDUCTS credits -- the trap) and the GOLDEN
+ * WIG (a full line AWARDS the same magnitude -- the jackpot). Equal rate and equal
+ * size, so the pair is exactly EV-neutral: it adds drama and a real per-spin swing
+ * without moving the tuned win-rate or house edge.
+ *
  * The rig is outcome-first AND honest-on-screen: every spin first decides
  * win/lose, then synthesizes a grid that the pure evaluator scores -- and the
  * credited payout is ALWAYS evaluator output, so what the player sees on the
@@ -70,15 +76,37 @@
   var WIN_RATE = 0.595;
   var EDGE = -0.002;
 
-  // Hexy-themed glyphs, ordered low -> high value. The grid stores a symbol's
-  // index (0..4); the renderer maps it to a glyph.
+  // ---- THE SPECIALS: a symmetric bonus/penalty pair layered ON TOP of the stake ----
+  // A fraction of NON-win spins surface a single SPECIAL full line instead of a blank
+  // loss: half the time Hexy's BARE HEAD (deducts PENALTY per line bet) and half the
+  // time the GOLDEN WIG (awards BONUS per line bet). BONUS == PENALTY and the two
+  // halves are equally likely, so the pair is exactly EV-neutral -- it "evens out"
+  // and leaves both rig knobs above byte-identical: the house EDGE is untouched, and
+  // the ~60% net-win frequency (which counts PAYING wins only) is unchanged. The bald
+  // deduction is suppressed when a spin already staked into debt, and is capped at
+  // PENALTY * max(BET_TIERS) <= DEBT_LIMIT, so a penalty can never breach the debt floor.
+  var SPECIAL_LINE_RATE = 0.22;   // share of non-win spins that surface a special line
+  var PENALTY = 10;               // a bald full line DEDUCTS this per line bet
+  var BONUS = 10;                 // a golden-wig full line AWARDS this per line bet (== PENALTY)
+
+  // Hexy-themed symbols. Indices 0..4 are the PAYING ladder (low -> high value),
+  // then the two SPECIAL symbols: index 5 is Hexy's BARE HEAD (a penalty -- a full
+  // line DEDUCTS) and index 6 is the GOLDEN WIG (a bonus -- a full line AWARDS the
+  // same magnitude, so the pair cancels). Paying symbols render as a glyph; the two
+  // specials render as an image (Hexy's bald head / the wig) with a glyph fallback
+  // for non-DOM contexts (the roll-blur, tests). `kind` lets the renderer style them.
   var SYMBOLS = [
-    { id: "rat",   glyph: "🐀" },   // rat
-    { id: "fart",  glyph: "💨" },   // dash of gas
-    { id: "wig",   glyph: "💇" },   // haircut/wig
-    { id: "lips",  glyph: "👄" },   // lips
-    { id: "crown", glyph: "👑" }    // crown
+    { id: "rat",     glyph: "🐀", kind: "pay" },
+    { id: "fart",    glyph: "💨", kind: "pay" },
+    { id: "wig",     glyph: "💇", kind: "pay" },
+    { id: "lips",    glyph: "👄", kind: "pay" },
+    { id: "crown",   glyph: "👑", kind: "pay" },
+    { id: "bald",    glyph: "🧑‍🦲", img: "assets/bald_no_bg.png", kind: "bald" },
+    { id: "jackpot", glyph: "✨", img: "assets/wig.png", kind: "bonus" }
   ];
+  var PAY_SYMBOLS = 5;   // indices 0..4 pay; the catalog/spread math is over these only
+  var BALD = 5;          // a full bald line DEDUCTS (Hexy's bare head -- the trap)
+  var BONUS_SYM = 6;     // a full golden-wig line AWARDS (the jackpot)
   // FULL_PAY[symbolIndex] = payout per line, as a multiple of bet-per-line, for a
   // COMPLETE 5-cell line of that symbol. There are no partial-run payouts -- only
   // a full line pays. Ascending by rank: a rat line barely beats a single-line
@@ -152,15 +180,17 @@
   function activeLines(game) { return PAYLINES.slice(0, game.lines); }
 
   // ---------- Pure line evaluator (the settle() analog) ----------
-  // Reads only the grid + bet. A line pays ONLY when all five cells along it are
-  // the same symbol -- a complete line. Partial runs (3 or 4 in a row) pay
-  // nothing. payout is the sum of lineWin over all winning active lines. No RNG,
-  // no mutation -- the single source of truth for the credited amount, so display
-  // and payout can never disagree. winningLines[].count is always REELS (a full
-  // line), kept so the renderer can highlight the whole shape uniformly.
+  // Reads only the grid + bet. A line resolves ONLY when all five cells along it are
+  // the same symbol -- a complete line; partial runs (3 or 4 in a row) do nothing. A
+  // full PAYING line adds to `payout`; a full GOLDEN-WIG line adds to `bonus`; a full
+  // BALD line adds to `penalty` (the amount the player loses). The credited amount a
+  // spin applies is payout + bonus - penalty. No RNG, no mutation -- the single source
+  // of truth, so display and credit can never disagree. Every resolved line's count is
+  // REELS (a full line), kept so the renderer can highlight the whole shape uniformly.
   function evaluate(grid, lineList, perLine) {
-    var payout = 0;
+    var payout = 0, bonus = 0, penalty = 0;
     var winners = [];
+    var specials = [];
     for (var i = 0; i < lineList.length; i++) {
       var line = lineList[i];
       var sym = grid[line[0]][0];
@@ -168,13 +198,22 @@
       for (var c = 1; c < REELS; c++) {
         if (grid[line[c]][c] !== sym) { full = false; break; }
       }
-      if (full) {
+      if (!full) continue;
+      if (sym < PAY_SYMBOLS) {
         var lineWin = FULL_PAY[sym] * perLine;
         payout += lineWin;
         winners.push({ line: line, lineIndex: i, symbol: sym, count: REELS, lineWin: lineWin });
+      } else if (sym === BONUS_SYM) {
+        var award = BONUS * perLine;
+        bonus += award;
+        specials.push({ line: line, lineIndex: i, symbol: sym, kind: "bonus", count: REELS, amount: award });
+      } else {   // BALD -- the penalty line
+        var hit = PENALTY * perLine;
+        penalty += hit;
+        specials.push({ line: line, lineIndex: i, symbol: sym, kind: "bald", count: REELS, amount: hit });
       }
     }
-    return { payout: payout, winningLines: winners };
+    return { payout: payout, bonus: bonus, penalty: penalty, winningLines: winners, specialLines: specials };
   }
 
   // ---------- Rig math ----------
@@ -194,7 +233,7 @@
   // (how many lines light up). 31 in all (the non-empty subsets of five symbols).
   function enumerateFullSpreads() {
     var out = [];
-    var n = SYMBOLS.length;
+    var n = PAY_SYMBOLS;   // wins are spreads of PAYING symbols only (specials never pay a spread)
     for (var mask = 1; mask < (1 << n); mask++) {
       var syms = [], val = 0;
       for (var b = 0; b < n; b++) {
@@ -341,7 +380,10 @@
   function synthesizeLosingGrid(rng) {
     for (var t = 0; t < SYNTH_TRIES; t++) {
       var grid = permColumnsGrid(rng);
-      if (evaluate(grid, PAYLINES, 1).payout === 0) return grid;
+      var ev = evaluate(grid, PAYLINES, 1);
+      // No paying line AND no special line: a plain loss neither pays, awards, nor
+      // deducts -- the stake is simply gone.
+      if (ev.payout === 0 && ev.bonus === 0 && ev.penalty === 0) return grid;
     }
     return fallbackLosingGrid(rng);
   }
@@ -377,27 +419,28 @@
     return chosen;
   }
 
-  // The grid cleanly realizes the spread iff every winning line is one of the
-  // chosen shapes carrying its assigned symbol as a FULL line -- so no stray full
-  // line slipped in from a leftover symbol and every intended line completed.
-  function fullSpreadMatches(winners, idxs, owners) {
+  // The grid cleanly realizes the intended layout iff every resolved line (paying
+  // OR special) is one of the chosen shapes carrying its assigned symbol as a FULL
+  // line -- so no stray full line slipped in from a leftover symbol and every
+  // intended line completed.
+  function symbolLinesMatch(resolved, idxs, owners) {
     var want = {};
     for (var i = 0; i < idxs.length; i++) want[idxs[i]] = owners[i];
-    for (var w = 0; w < winners.length; w++) {
-      var e = want[winners[w].lineIndex];
-      if (e === undefined || winners[w].symbol !== e || winners[w].count !== REELS) return false;
+    for (var w = 0; w < resolved.length; w++) {
+      var e = want[resolved[w].lineIndex];
+      if (e === undefined || resolved[w].symbol !== e || resolved[w].count !== REELS) return false;
     }
     return true;
   }
 
-  // Try to lay out `syms` (distinct symbols) as that many FULL lines, one per
-  // mutually non-crossing active shape: each chosen shape gets its symbol in every
-  // column, and the leftover rows of each column take the remaining symbols (so the
-  // column stays a permutation -- the reel is repeat-free). Accept only when the
-  // evaluator reads back exactly those full lines and nothing else (a leftover
-  // symbol must not accidentally complete another active line). Returns the grid or
-  // null if the try budget is spent.
-  function placeFullSpread(rng, active, syms) {
+  // Try to lay out `syms` (distinct symbols -- paying for a win spread, or a single
+  // special for a bald/bonus line) as that many FULL lines, one per mutually
+  // non-crossing active shape: each chosen shape gets its symbol in every column, and
+  // the leftover rows of each column take the remaining symbols (so the column stays
+  // repeat-free). Accept only when the evaluator reads back exactly those full lines
+  // and NOTHING else -- no leftover symbol may accidentally complete another active
+  // line, paying or special. Returns the grid or null if the try budget is spent.
+  function placeSymbolLines(rng, active, syms) {
     var k = syms.length;
     if (k > active) return null;
     for (var t = 0; t < SYNTH_TRIES; t++) {
@@ -426,7 +469,8 @@
         for (var row2 = 0; row2 < ROWS; row2++) { if (!taken[row2]) grid[row2][c] = rem[ri++]; }
       }
       var res = evaluate(grid, PAYLINES.slice(0, active), 1);
-      if (res.winningLines.length === k && fullSpreadMatches(res.winningLines, idxs, owners)) {
+      var resolved = res.winningLines.concat(res.specialLines);
+      if (resolved.length === k && symbolLinesMatch(resolved, idxs, owners)) {
         return grid;
       }
     }
@@ -447,10 +491,21 @@
     var maxParts = Math.min(active, MAX_WIN_LINES);
     var candidates = orderedSpreadCandidates(rng, units, maxParts);
     for (var i = 0; i < candidates.length; i++) {
-      var grid = placeFullSpread(rng, active, candidates[i]);
+      var grid = placeSymbolLines(rng, active, candidates[i]);
       if (grid) return grid;
     }
-    return fallbackWinningGrid(rng, lines, closestSymbolForUnits(units, lines));
+    return fallbackSingleLineGrid(rng, lines, closestSymbolForUnits(units, lines));
+  }
+
+  // A SPECIAL grid: exactly ONE full line of `specialSym` (BALD or BONUS_SYM) on a
+  // random active shape, with nothing else resolving -- no paying line and no second
+  // special line. The credited charge/award is always the evaluator's reading of the
+  // shown grid, so the player is debited/credited exactly what the bald/wig line shows.
+  function synthesizeSpecialGrid(rng, lines, specialSym) {
+    var active = Math.min(lines, MAX_LINES);
+    var grid = placeSymbolLines(rng, active, [specialSym]);
+    if (grid) return grid;
+    return fallbackSingleLineGrid(rng, lines, specialSym);
   }
 
   // ---------- Guaranteed fallbacks (used only when rejection exhausts its budget,
@@ -485,15 +540,15 @@
     return { a: a, b: b };
   }
 
-  // Pays a single FULL line of `sym` on one horizontal row: locking columns 0/1 of
-  // every other row to two distinct symbols (both != sym) leaves that row the sole
-  // full line. Catalog invariant: only a straight horizontal has reel0 == reel1, so
-  // for any non-horizontal shape P the cells (P[0],0) and (P[1],1) are different
-  // rows -- one holds `a`, the other `b` (or `sym` on row R), never one symbol
-  // throughout. The guaranteed safety net for the rare spin whose spread won't
-  // place cleanly; honest like every grid -- the credited payout is the evaluator's
-  // reading. `sym` is chosen net-positive, so the line still beats the stake.
-  function fallbackWinningGrid(rng, lines, sym) {
+  // Plants a single FULL line of `sym` (any symbol -- a net-positive paying symbol
+  // for a win, or a special for a bald/bonus line) on one horizontal row: locking
+  // columns 0/1 of every other row to two distinct symbols (both != sym) leaves that
+  // row the sole full line. Catalog invariant: only a straight horizontal has
+  // reel0 == reel1, so for any non-horizontal shape P the cells (P[0],0) and (P[1],1)
+  // are different rows -- one holds `a`, the other `b` (or `sym` on row R), never one
+  // symbol throughout. The guaranteed safety net for the rare spin whose layout won't
+  // place cleanly; honest like every grid -- the credited amount is the evaluator's reading.
+  function fallbackSingleLineGrid(rng, lines, sym) {
     var rows = Math.min(lines, ROWS);
     var R = Math.floor(rng() * rows) % rows;
     var grid = blankGrid();
@@ -577,21 +632,42 @@
     var lines = activeLines(game);
     var per = betPerLine(game);
     var win = rng() < WIN_RATE;
+    var kind = "loss";
     if (win) {
       var units = drawWinUnits(rng, game.lines);
       game.grid = synthesizeWinningGrid(rng, game.lines, units);
+      kind = "win";
+    } else if (rng() < SPECIAL_LINE_RATE) {
+      // A non-win spin can still surface a SPECIAL full line on top of the lost
+      // stake: half golden-wig bonus, half bald penalty. The bald is suppressed when
+      // the spin already staked into debt (credits < 0), so the deduction can never
+      // push the bankroll past the debt floor.
+      if (rng() < 0.5) {
+        game.grid = synthesizeSpecialGrid(rng, game.lines, BONUS_SYM);
+        kind = "bonus";
+      } else if (game.credits >= 0) {
+        game.grid = synthesizeSpecialGrid(rng, game.lines, BALD);
+        kind = "bald";
+      } else {
+        game.grid = synthesizeLosingGrid(rng);
+      }
     } else {
       game.grid = synthesizeLosingGrid(rng);
     }
     var res = evaluate(game.grid, lines, per);       // single source of truth
-    game.credits += res.payout;                      // pay the actual evaluated win
+    var credited = res.payout + res.bonus - res.penalty;
+    game.credits += credited;                        // apply the actual evaluated grid
     if (game.credits > game.peakCredits) game.peakCredits = game.credits;  // track the best reached
     game.lastResult = {
-      payout: res.payout,
+      kind: kind,                  // "win" | "loss" | "bonus" | "bald"
+      win: win,                    // a PAYING win (drives the ~60% net-win frequency)
+      payout: res.payout,          // positive paying-line total (0 on loss/special)
+      bonus: res.bonus,            // golden-wig award (0 unless a bonus spin)
+      penalty: res.penalty,        // bald-head deduction (0 unless a bald spin)
       winningLines: res.winningLines,
-      delta: res.payout - cost,
-      cost: cost,
-      win: win
+      specialLines: res.specialLines,
+      delta: credited - cost,
+      cost: cost
     };
     game.phase = "result";
     if (game.credits >= TARGET_CREDITS) game.complete = true;
@@ -633,6 +709,12 @@
     EDGE: EDGE,
     SYMBOLS: SYMBOLS,
     FULL_PAY: FULL_PAY,
+    PAY_SYMBOLS: PAY_SYMBOLS,
+    BALD: BALD,
+    BONUS_SYM: BONUS_SYM,
+    PENALTY: PENALTY,
+    BONUS: BONUS,
+    SPECIAL_LINE_RATE: SPECIAL_LINE_RATE,
     maxScore: maxScore,
 
     createGame: createGame,
@@ -652,6 +734,7 @@
     activeLines: activeLines,
     evaluate: evaluate,
     synthesizeWinningGrid: synthesizeWinningGrid,
+    synthesizeSpecialGrid: synthesizeSpecialGrid,
     synthesizeLosingGrid: synthesizeLosingGrid,
     requiredMeanNet: requiredMeanNet,
     drawWinUnits: drawWinUnits

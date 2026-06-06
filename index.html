@@ -163,7 +163,7 @@
     <div class="panel slots-panel">
       <p class="pin-eyebrow">Final Leg &middot; Hexy's One-Armed Bandit</p>
       <h2 class="round-headline">Rig of Fortune</h2>
-      <p class="bj-sub">Turn <b>1000</b> credits into <b>2000</b> to clinch it. Hit <b>zero</b> and the run ends. Bet more lines or a bigger stake &mdash; the swing is yours to ride.</p>
+      <p class="bj-sub">Turn <b>1000</b> credits into <b>2000</b> to clinch it. Hit <b>zero</b> and the run ends. Bet more lines or a bigger stake &mdash; the swing is yours to ride. Line up the <b>golden wig</b> for a bonus &mdash; but a row of <b>Hexy's bare bald head</b> is a trap that <b>COSTS</b> you credits, it does not pay.</p>
 
       <div class="slots-meters" aria-hidden="true">
         <span class="slots-meter"><span class="slots-meter-cap">Credits</span><span id="slots-credits" class="slots-meter-num">1000</span></span>
@@ -175,6 +175,17 @@
       <div class="slots-stage" aria-hidden="true">
         <div id="slots-grid" class="slots-grid"></div>
         <svg id="slots-overlay" class="slots-overlay" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </div>
+
+      <div class="slots-legend">
+        <span class="slots-legend-item is-bonus">
+          <img class="slots-legend-img" src="assets/wig.png" alt="Golden wig" draggable="false" />
+          <span class="slots-legend-text"><b>Golden Wig</b> in a row &rarr; <b>BONUS</b>, pays you</span>
+        </span>
+        <span class="slots-legend-item is-bald">
+          <img class="slots-legend-img" src="assets/bald_no_bg.png" alt="Hexy's bald head" draggable="false" />
+          <span class="slots-legend-text"><b>Bald Hexy</b> in a row &rarr; <b>PENALTY</b>, LOSES you credits</span>
+        </span>
       </div>
 
       <div id="slots-wig" class="wig-meter wig-meter--slots" style="--seat:0" aria-hidden="true">

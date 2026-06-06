@@ -654,6 +654,20 @@
     beep(120, 0.07, "sine", 0.12);                                  // the thunk
     beep(REEL_STOP_NOTES[col] || 392, 0.14, "triangle", 0.15);      // the rising note
   }
+  // The golden-wig jackpot: a bright rising arpeggio capped with a shimmer -- richer
+  // and higher than any ordinary win jingle so the bonus line feels like a treat.
+  function sfxJackpot() {
+    sweep(440, 1320, 0.34, "triangle", 0.10);
+    chord([784, 988, 1319, 1568, 2093], 0.26, "triangle");
+    setTimeout(function () { beep(2637, 0.12, "sine", 0.10); }, 300);
+  }
+  // The bald-head trap: a harsh descending two-tone buzzer (the classic "wah-wah"
+  // fail) so a row of Hexy's bare head lands as an unmistakable gut-punch.
+  function sfxBald() {
+    sweep(320, 90, 0.5, "sawtooth", 0.2);
+    beep(196, 0.2, "square", 0.14);
+    setTimeout(function () { beep(146, 0.3, "sawtooth", 0.16); }, 150);
+  }
 
   // ---------- Game flow ----------
   function startGame() {
@@ -1904,6 +1918,84 @@
   // CSS animations). slotAnim holds the in-flight spin's animation state, or null.
   var slotCells = [];
   var slotAnim = null;
+  var slotFlashEl = null;
+
+  // Paint a single reel cell. Paying symbols render as their glyph; the two SPECIAL
+  // symbols (Hexy's bald head, the golden wig) render as their image, reusing the
+  // cell's <img> across repaints so the roll/lock churn stays cheap.
+  function paintSlotCell(cell, symIndex) {
+    var s = SLOT.SYMBOLS[symIndex];
+    if (s && s.img) {
+      var img = cell.firstChild;
+      if (!img || img.tagName !== "IMG") {
+        cell.textContent = "";
+        img = document.createElement("img");
+        img.className = "slots-sym-img";
+        img.alt = ""; img.draggable = false;
+        cell.appendChild(img);
+      }
+      if (img.getAttribute("src") !== s.img) img.setAttribute("src", s.img);
+    } else {
+      cell.textContent = s ? s.glyph : "";
+    }
+  }
+
+  function fmtSigned(n) { return n >= 0 ? "+" + n : "" + n; }
+
+  // A brief full-stage colour wash keyed to the spin's outcome -- the loudest, most
+  // reliably-visible cue since it lives inside the slots panel (the canvas confetti
+  // sits behind it). Re-armed each call so back-to-back spins always flash.
+  function flashSlots(kind) {
+    if (reduceMotion) return;
+    var stage = el.slotsGrid && el.slotsGrid.parentNode;
+    if (!stage) return;
+    if (!slotFlashEl || slotFlashEl.parentNode !== stage) {
+      slotFlashEl = document.createElement("div");
+      slotFlashEl.className = "slots-flash";
+      stage.appendChild(slotFlashEl);
+    }
+    slotFlashEl.className = "slots-flash";
+    void slotFlashEl.offsetWidth;                 // restart the animation
+    slotFlashEl.classList.add("is-" + kind);
+  }
+
+  // A short DOM shake of the reel stage -- the canvas shake (game.shake) can't move
+  // the HTML overlay, so a penalty/jackpot gets its jolt here instead.
+  function shakeSlots(strength) {
+    if (reduceMotion) return;
+    var stage = el.slotsGrid && el.slotsGrid.parentNode;
+    if (!stage) return;
+    stage.classList.remove("slots-shake-hard", "slots-shake-soft");
+    void stage.offsetWidth;
+    stage.classList.add(strength === "hard" ? "slots-shake-hard" : "slots-shake-soft");
+  }
+
+  // Count the credits readout up (or down) to its settled value -- a small bit of
+  // juice that makes a win feel earned and a penalty feel like it bites.
+  function animateCredits(from, to) {
+    var n = el.slotsCredits;
+    if (!n) return;
+    if (reduceMotion || from === to) {
+      n.textContent = to;
+      n.classList.toggle("is-debt", to < 0);
+      return;
+    }
+    n.textContent = from;
+    n.classList.toggle("is-debt", from < 0);
+    var dur = 520, t0 = null;
+    function step(ts) {
+      if (game.state !== "slots") { n.textContent = to; return; }
+      if (t0 === null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / dur);
+      var e = 1 - Math.pow(1 - p, 3);             // easeOutCubic
+      var v = Math.round(from + (to - from) * e);
+      n.textContent = v;
+      n.classList.toggle("is-debt", v < 0);
+      if (p < 1) requestAnimationFrame(step);
+      else { n.textContent = to; n.classList.toggle("is-debt", to < 0); }
+    }
+    requestAnimationFrame(step);
+  }
 
   function startSlots() {
     game.advancing = false;
@@ -1952,12 +2044,21 @@
     // the eye separate two lines that interleave across the same rows (e.g. a rat
     // zigzag crossing a wig zigzag), instead of reading the mixed strip as one row
     // where the rat looks like a wild.
-    var winHue = {};
+    var cellTag = {};
     if (lr) {
       for (var w = 0; w < lr.winningLines.length; w++) {
         var wl = lr.winningLines[w];
         var lineHue = Math.round((wl.lineIndex / SLOT.MAX_LINES) * 330);
-        for (var c = 0; c < wl.count; c++) winHue[wl.line[c] + "," + c] = lineHue;
+        for (var c = 0; c < wl.count; c++) cellTag[wl.line[c] + "," + c] = { cls: "is-win", hue: lineHue };
+      }
+      // Special cells get their own marker: a bald line glows danger-red, a golden-wig
+      // line glows gold -- so the grid itself shows which line helped and which hurt.
+      var sls = lr.specialLines || [];
+      for (var sx = 0; sx < sls.length; sx++) {
+        var sp = sls[sx];
+        for (var sc = 0; sc < sp.count; sc++) {
+          cellTag[sp.line[sc] + "," + sc] = { cls: sp.kind === "bonus" ? "is-bonus" : "is-bald" };
+        }
       }
     }
     // Reels: one column element per reel, five symbol cells each. Cache the cells
@@ -1970,11 +2071,10 @@
       slotCells[col] = [];
       for (var row = 0; row < SLOT.ROWS; row++) {
         var cell = document.createElement("div");
-        var cellKey = row + "," + col;
-        var isWin = Object.prototype.hasOwnProperty.call(winHue, cellKey);
-        cell.className = "slots-cell" + (isWin ? " is-win" : "");
-        if (isWin) cell.style.setProperty("--win-hue", winHue[cellKey]);
-        cell.textContent = SLOT.SYMBOLS[g.grid[row][col]].glyph;
+        var tag = cellTag[row + "," + col];
+        cell.className = "slots-cell" + (tag ? " " + tag.cls : "");
+        if (tag && tag.hue !== undefined) cell.style.setProperty("--win-hue", tag.hue);
+        paintSlotCell(cell, g.grid[row][col]);
         reel.appendChild(cell);
         slotCells[col][row] = cell;
       }
@@ -1991,11 +2091,20 @@
       (SLOT.TARGET_CREDITS - SLOT.START_CREDITS)));
     setWigSeat(el.slotsWig, pct);
 
-    // Result banner: a win is green, a losing spin red, the pre-spin state neutral.
+    // Result banner: a paying win is green, the golden-wig bonus gold, the bald-head
+    // penalty an unmistakable red callout, a plain loss red, the pre-spin state neutral.
     if (lr) {
       if (lr.win) {
         el.slotsResult.textContent = "+" + lr.payout + "  (net +" + lr.delta + ")";
         el.slotsResult.className = "slots-result is-win";
+      } else if (lr.kind === "bonus") {
+        el.slotsResult.textContent = "✨ GOLDEN WIG! +" + lr.bonus +
+          " bonus credits  (net " + fmtSigned(lr.delta) + ") ✨";
+        el.slotsResult.className = "slots-result is-bonus";
+      } else if (lr.kind === "bald") {
+        el.slotsResult.textContent = "💀 BALD HEXY! −" + lr.penalty +
+          " — a row of his bare head COSTS you  (net " + lr.delta + ")";
+        el.slotsResult.className = "slots-result is-bald";
       } else {
         el.slotsResult.textContent = "No pay — " + lr.cost + " gone";
         el.slotsResult.className = "slots-result is-lose";
@@ -2069,32 +2178,55 @@
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     var SVGNS = "http://www.w3.org/2000/svg";
 
-    function addLine(line, hue, len, bright) {
+    function pointsFor(line, len) {
       var pts = "";
       for (var c = 0; c < len; c++) {
         pts += cx[c][line[c]].toFixed(1) + "," + cy[c][line[c]].toFixed(1) + " ";
       }
+      return pts.trim();
+    }
+    function stroke(pts, color, width, opacity, cls) {
       var pl = document.createElementNS(SVGNS, "polyline");
-      pl.setAttribute("points", pts.trim());
+      pl.setAttribute("points", pts);
       pl.setAttribute("fill", "none");
-      pl.setAttribute("stroke", "hsl(" + hue + " 90% 65%)");
-      pl.setAttribute("stroke-width", bright ? "3.4" : "1.5");
-      pl.setAttribute("stroke-opacity", bright ? "0.95" : "0.22");
+      pl.setAttribute("stroke", color);
+      pl.setAttribute("stroke-width", width);
+      pl.setAttribute("stroke-opacity", opacity);
       pl.setAttribute("stroke-linejoin", "round");
       pl.setAttribute("stroke-linecap", "round");
-      if (bright) pl.setAttribute("class", "win");
+      if (cls) pl.setAttribute("class", cls);
       svg.appendChild(pl);
     }
 
-    // Every active payline as a faint full-shape guide (what you're betting on)...
+    // Every active payline as a full-shape guide (what you're betting on) -- bright
+    // enough to actually follow on the busy 30-line board, each in its own hue.
     for (var i = 0; i < lines.length; i++) {
-      addLine(lines[i], Math.round((i / SLOT.MAX_LINES) * 330), SLOT.REELS, false);
+      var hue = Math.round((i / SLOT.MAX_LINES) * 330);
+      stroke(pointsFor(lines[i], SLOT.REELS), "hsl(" + hue + " 95% 66%)", "2.2", "0.5");
     }
-    // ...then the bright winning segment over ONLY its run cells, on top, in the
-    // same hue as that line's glowing cells -- so line and cells agree exactly.
+    // ...then the winning lines on top: a dark halo first (so the bright stroke reads
+    // against the glyphs it crosses), then the bright stroke in that line's hue.
     for (var j = 0; j < lines.length; j++) {
       if (Object.prototype.hasOwnProperty.call(wonCount, j)) {
-        addLine(lines[j], Math.round((j / SLOT.MAX_LINES) * 330), wonCount[j], true);
+        var ptsj = pointsFor(lines[j], wonCount[j]);
+        var huej = Math.round((j / SLOT.MAX_LINES) * 330);
+        stroke(ptsj, "rgba(0,0,0,0.6)", "7", "0.7");
+        stroke(ptsj, "hsl(" + huej + " 95% 66%)", "4", "1", "win");
+      }
+    }
+    // ...and the SPECIAL lines loudest of all: the golden-wig bonus in gold, the
+    // bald-head penalty in danger-red, each haloed and pulsing.
+    if (lr && lr.specialLines) {
+      for (var s2 = 0; s2 < lr.specialLines.length; s2++) {
+        var spl = lr.specialLines[s2];
+        var spts = pointsFor(spl.line, spl.count);
+        if (spl.kind === "bonus") {
+          stroke(spts, "rgba(40,24,0,0.75)", "8.5", "0.85");
+          stroke(spts, "hsl(44 100% 60%)", "4.6", "1", "special-bonus");
+        } else {
+          stroke(spts, "rgba(0,0,0,0.78)", "8.5", "0.85");
+          stroke(spts, "hsl(2 96% 58%)", "4.6", "1", "special-bald");
+        }
       }
     }
   }
@@ -2149,7 +2281,8 @@
     SLOT.spin(g);                          // compute the (deterministic) result up front
     var lr = g.lastResult;
     var finalGrid = g.grid;
-    var staked = g.credits - lr.payout;    // balance after staking, before payout
+    var credited = lr.payout + lr.bonus - lr.penalty;
+    var staked = g.credits - credited;     // balance after staking, before the grid pays/charges
 
     if (reduceMotion) {
       // No rolling or flashing -- reveal the result and settle immediately.
@@ -2170,11 +2303,16 @@
     if (el.slotsWarn) show(el.slotsWarn, false);
     sfxSpinStart();
 
+    // Anything but a plain loss earns an anticipation beat: the payoff reel lingers
+    // and glows so a win/bonus/penalty lands with a drumroll instead of a flat stop.
+    var anticipate = lr.win || lr.kind === "bonus" || lr.kind === "bald";
     var base = 480, stagger = 190;
+    var stopAt = [base, base + stagger, base + 2 * stagger, base + 3 * stagger, base + 4 * stagger];
+    if (anticipate) stopAt[SLOT.REELS - 1] += 340;
     slotAnim = {
       start: 0, lastFlick: 0, lastTick: 0,
-      finalGrid: finalGrid, lr: lr,
-      stopAt: [base, base + stagger, base + 2 * stagger, base + 3 * stagger, base + 4 * stagger],
+      finalGrid: finalGrid, lr: lr, anticipate: anticipate, anticipated: false,
+      stopAt: stopAt,
       stopped: [false, false, false, false, false]
     };
     requestAnimationFrame(slotAnimFrame);
@@ -2195,6 +2333,19 @@
         sfxReelStop(col);
       }
     }
+    // Drumroll: once every reel but the last has locked, glow the lone spinner and
+    // sweep a rising tone so the payoff feels imminent.
+    if (a.anticipate && !a.anticipated && !a.stopped[SLOT.REELS - 1]) {
+      var prevAllIn = true;
+      for (var pc = 0; pc < SLOT.REELS - 1; pc++) if (!a.stopped[pc]) prevAllIn = false;
+      if (prevAllIn) {
+        a.anticipated = true;
+        var lastCells = slotCells[SLOT.REELS - 1];
+        var lastReel = lastCells && lastCells[0] && lastCells[0].parentNode;
+        if (lastReel) lastReel.classList.add("anticipating");
+        sweep(280, 920, 0.36, "sine", 0.09);
+      }
+    }
     // Flicker random symbols on the reels still spinning.
     if (ts - a.lastFlick >= SLOT_FLICK_MS) {
       a.lastFlick = ts;
@@ -2210,8 +2361,10 @@
   function flickReelColumn(col) {
     var cells = slotCells[col];
     if (!cells) return;
+    // The blur shows only the PAYING glyphs, so a bald head / golden wig is a
+    // surprise that resolves on the lock rather than flashing past in the roll.
     for (var row = 0; row < SLOT.ROWS; row++) {
-      cells[row].textContent = SLOT.SYMBOLS[(Math.random() * SLOT.SYMBOLS.length) | 0].glyph;
+      cells[row].textContent = SLOT.SYMBOLS[(Math.random() * SLOT.PAY_SYMBOLS) | 0].glyph;
     }
   }
 
@@ -2219,10 +2372,13 @@
     var cells = slotCells[col];
     if (!cells) return;
     for (var row = 0; row < SLOT.ROWS; row++) {
-      cells[row].textContent = SLOT.SYMBOLS[finalGrid[row][col]].glyph;
+      paintSlotCell(cells[row], finalGrid[row][col]);
     }
     var reel = cells[0] && cells[0].parentNode;
-    if (reel) { reel.classList.remove("just-stopped"); void reel.offsetWidth; reel.classList.add("just-stopped"); }
+    if (reel) {
+      reel.classList.remove("anticipating");
+      reel.classList.remove("just-stopped"); void reel.offsetWidth; reel.classList.add("just-stopped");
+    }
   }
 
   function endSlotAnim() {
@@ -2234,27 +2390,68 @@
     if (lr) settleSlot(lr);
   }
 
-  // The win/loss payoff, shared by the animated and reduced-motion paths.
+  // The payoff, shared by the animated and reduced-motion paths. Each outcome gets a
+  // distinct sound + light: green win, GOLD jackpot, RED penalty, flat loss -- and the
+  // credits readout counts to its settled value so the swing reads on the meter.
   function settleSlot(lr) {
     var g = game.slot;
+    var credited = lr.payout + lr.bonus - lr.penalty;
+    if (g) animateCredits(g.credits - credited, g.credits);
     if (lr.win) {
       sfxPin(900 + Math.min(600, lr.payout));
       pulseCredits();
       if (lr.delta >= lr.cost * 3) {            // a big hit gets the full celebration
         fart();
-        spawnConfettiAt(view.w / 2, view.h * 0.30, 0.8);
+        spawnConfettiAt(view.w / 2, view.h * 0.30, 0.9);
         game.shake = reduceMotion ? 0 : 8;
+        flashSlots("win-big");
+        burstWinCells();
       } else {
         chord([523, 659, 784], 0.1);
+        flashSlots("win");
       }
+    } else if (lr.kind === "bonus") {
+      sfxJackpot();
+      pulseCredits();
+      spawnConfettiAt(view.w / 2, view.h * 0.30, 1.1);
+      flashSlots("bonus");
+      shakeSlots("soft");
+      burstWinCells();
+    } else if (lr.kind === "bald") {
+      sfxBald();
+      pulseCredits();
+      flashSlots("bald");
+      shakeSlots("hard");
+      game.shake = reduceMotion ? 0 : 10;
+      playVoiceLine();        // a voice line piles on while the bare head bites
     } else {
       sfxMiss();
       playVoiceLine();        // a random voice line razzes the player on a loss
     }
     if (!g) return;
-    if (g.complete) { setTimeout(function () { onSlotResolved(true); }, 700); return; }
-    if (g.bust) { setTimeout(function () { onSlotResolved(false); }, 700); return; }
+    if (g.complete) { setTimeout(function () { onSlotResolved(true); }, 800); return; }
+    if (g.bust) { setTimeout(function () { onSlotResolved(false); }, 800); return; }
     setSlotsBusy(false);          // ready for the next spin
+  }
+
+  // Re-arm the pop on every resolved cell (win or special) so they punch in together
+  // a beat after the reels lock, instead of only animating on first paint.
+  function burstWinCells() {
+    if (reduceMotion) return;
+    setTimeout(function () {
+      if (game.state !== "slots") return;
+      for (var col = 0; col < slotCells.length; col++) {
+        var cells = slotCells[col];
+        if (!cells) continue;
+        for (var row = 0; row < cells.length; row++) {
+          var cell = cells[row];
+          if (!cell || !/is-(win|bonus|bald)/.test(cell.className)) continue;
+          cell.classList.remove("cell-burst");
+          void cell.offsetWidth;
+          cell.classList.add("cell-burst");
+        }
+      }
+    }, 130);
   }
 
   function onSlotResolved(won) {
